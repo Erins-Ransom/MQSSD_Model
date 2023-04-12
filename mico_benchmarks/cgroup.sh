@@ -13,5 +13,5 @@ fi
 # add the current shell to the cgroup
 echo $$ >> /sys/fs/cgroup/bench/cgroup.procs
 
-# execute the benchmark in the cgroup
-./run.sh $1 $2 $3 $4 $5 $6 $7
+# execute new shell within the cgroup
+/bin/zsh

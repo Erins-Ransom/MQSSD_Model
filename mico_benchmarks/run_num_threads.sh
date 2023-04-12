@@ -6,17 +6,19 @@ RW_FLAG=$1
 RS_FLAG=$2
 # size to be read/written each time (KiB)
 RW_SIZE=$3
-# number of accesses
-NUM_ACCESS=$4
 # size of the file read/written from/to (GiB)
-FILE_SIZE=$5
+FILE_SIZE=$4
 # max number of threads to run
-MAX_THREAS=$6
+MAX_THREADS=$5
 # number of rounds to repeat the experiment
-ROUNDS=$7
+ROUNDS=$6
 OP="read"
 OR="rand"
 
+if [ ${MAX_THREADS} -gt "64" ]
+then
+    MAX_THREADS=64
+fi
 if [ $RW_FLAG = "w" ]
 then
     OP="write"
@@ -29,23 +31,24 @@ fi
 # rm ${OP}.csv
 make micro_bench
 echo -ne " [STATUS] gernerating ${FILE_SIZE}GB file...\r"
-if [ $RS_FLAG ]
-head -c ${FILE_SIZE}G </dev/urandom >file
-for (( i = 1; i <= $ROUNDS; i++)); do
+# head -c ${FILE_SIZE} GB </dev/urandom >file
+for (( i = 1; i <= $ROUNDS; i++ )); do
     echo "${i}"
-    # for k in 1 2 4 8 16 32 64; do
-    for (( k=1; k <= MAX_THREADS; k = k * 2 )); do
-        echo -ne " [STATUS] ${OP}_${OR} $(( k*RW_SIZE*NUM_ACCESS ))B with ${k} threads...\033[0K\r"
+    for k in 1 2 4 8 16 32 64; do
+        echo -ne " [STATUS] ${OP}_${OR} $(( k*10 )) GiB with ${k} threads...\033[0K\r"
         sync; echo 3 > /proc/sys/vm/drop_caches
-        ./micro_bench ${k} ${RW_SIZE} ${NUM_ACCESS} ${FILE_SIZE} ${RW_FLAG} ${RS_FLAG} >> ${OP}_${OR}.csv
-        if [ ${k} -ne 64 ]
+        ./micro_bench ${k} ${RW_SIZE} ${FILE_SIZE} ${RW_FLAG} ${RS_FLAG} >> ${OP}_${OR}.csv
+        if [ ${k} -lt ${MAX_THREADS} ]
         then
-            echo -n ", " >> ${OP}_${OR}.csv
+            echo -n "," >> ${OP}_${OR}.csv
         else 
             echo -ne "\n" >> ${OP}_${OR}.csv
+            break
         fi
 
-        echo " [STATUS] ${OP}_${OR} $(( k*RW_SIZE*NUM_ACCESS ))B with ${k} threads - DONE."
+        rm thread_* 2> /dev/null
+
+        echo " [STATUS] ${OP}_${OR} $(( k*10 )) GiB with ${k} threads - DONE."
     done
 done
 

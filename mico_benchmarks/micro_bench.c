@@ -65,7 +65,7 @@ void * worker_thread(void * arg)
         } 
         else 
         {
-            fd = open(file_name, O_WRONLY);
+            fd = open(file_name, O_WRONLY | O_CREAT);
         }
         if (fd == -1)
         {
@@ -90,16 +90,17 @@ void * worker_thread(void * arg)
 
 int main(int argc, char ** argv)
 {
-    // parse arguments, <num_threads> <access_size(KB)> <num_accesses> <file_size(GB)> <r/w> <r/s>
+    // parse arguments: <num_threads> <access_size(KB)> <file_size(GB)> <r/w> <r/s>
     int num_threads = atoi(argv[1]);
     access_size = 1024 * (size_t) atoi(argv[2]);
-    num_accesses = (size_t) atoi(argv[3]);
-    file_size = 1024 * 1024 * 1024 * (size_t) atoi(argv[4]);
-    if (strcmp(argv[5], "r") == 0) 
+    // num_accesses = (size_t) atoi(argv[3]);
+    num_accesses = (size_t) 10 * 1024 * 1024 * 1024 / access_size; 
+    file_size = 1024 * 1024 * 1024 * (size_t) atoi(argv[3]);
+    if (strcmp(argv[4], "r") == 0) 
     {
         read_flag = 1;
     }
-    if (strcmp(argv[6], "r") == 0)
+    if (strcmp(argv[5], "r") == 0)
     {
         rand_flag = 1;
     }
