@@ -24,7 +24,6 @@ fi
 if [ $RS_FLAG = "s" ]
 then
     OR="seq"
-    for (( i=1; i <= ))
 fi
 
 # rm ${OP}.csv
