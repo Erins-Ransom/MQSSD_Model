@@ -50,7 +50,7 @@ void * worker_thread(void * arg)
             }
             if (ret < access_size)
             {
-                fprintf(stderr, "ERROR: only %d B of %d B read/written: %s", ret, access_size, strerror(errno));
+                fprintf(stderr, "ERROR: only %d B of %d B read/written: %s\n", ret, access_size, strerror(errno));
             }
             
         }
@@ -90,12 +90,12 @@ void * worker_thread(void * arg)
 
 int main(int argc, char ** argv)
 {
-    // parse arguments: <num_threads> <access_size(KB)> <file_size(GB)> <r/w> <r/s>
+    // parse arguments: <num_threads> <access_size(KB)> <file_size(MB)> <r/w> <r/s>
     int num_threads = atoi(argv[1]);
     access_size = 1024 * (size_t) atoi(argv[2]);
     // num_accesses = (size_t) atoi(argv[3]);
     num_accesses = (size_t) 10 * 1024 * 1024 * 1024 / access_size; 
-    file_size = 1024 * 1024 * 1024 * (size_t) atoi(argv[3]);
+    file_size = 1024 * 1024 * (size_t) atoi(argv[3]);
     if (strcmp(argv[4], "r") == 0) 
     {
         read_flag = 1;
@@ -114,7 +114,7 @@ int main(int argc, char ** argv)
             fprintf(stderr, "Failed to gernerate random offsets: %s\n", strerror(errno));
             exit(1);
         }
-        for (size_t i = num_threads*num_accesses; i > 0; i--)
+        for (size_t i = 0; i < num_threads*num_accesses; i++)
         {
             offsets[i] = offsets[i] % (size_t)(file_size - access_size);
         }
@@ -123,7 +123,7 @@ int main(int argc, char ** argv)
     {
         for (size_t i = 0; i < num_threads; i++)
         {
-            offsets[i*num_accesses] = i * (file_size - access_size)/ num_threads;
+            offsets[i*num_accesses] = i * (file_size - access_size*2)/ num_threads;
         }
     }
 
