@@ -17,12 +17,25 @@ data = [[ 2383320,2423581,2554996,3040902,4006278,5220205,6005990,7133514,924115
 
 to_plot = [ [ x/div for x in line ] for line in data ]
 
+def W (f, k) :
+    f = max(f,128)
+    return k * 10 * 1024 * 1024 * ((0.0000009091 * 128/f) + (0.0001640 + 0.0000094) * (1 - 128/f)) / 4 
+
 
 # plt.xscale("log")
-plt.plot(X, to_plot[0], label = "1 thread", linestyle=" ", marker="o")
-plt.plot(X, to_plot[1], label = "2 threads", linestyle=" ", marker="o")
-plt.plot(X, to_plot[2], label = "4 threads", linestyle=" ", marker="o")
-plt.plot(X, to_plot[3], label = "8 threads", linestyle=" ", marker="o")
+
+
+# plt.plot(X, [W(x,1) for x in X], label = "W(f,1)", color = "blue", linestyle="-")
+# plt.plot(X, [W(x,2) for x in X], label = "W(f,2)", color = "orange", linestyle="-")
+# plt.plot(X, [W(x,4) for x in X], label = "W(f,4)", color = "purple", linestyle="-")
+# plt.plot(X, [W(x,8) for x in X], label = "W(f,8)", color = "gold", linestyle="-")
+
+
+plt.plot(X, to_plot[0], label = "1 thread", color = "blue", linestyle=" ", marker="o")
+plt.plot(X, to_plot[1], label = "2 threads", color = "orange", linestyle=" ", marker="o")
+plt.plot(X, to_plot[2], label = "4 threads", color = "purple", linestyle=" ", marker="o")
+plt.plot(X, to_plot[3], label = "8 threads", color = "gold", linestyle=" ", marker="o")
+
 
 plt.legend()
 plt.ylabel('Time to Read/Write 10 GiB (sec)')

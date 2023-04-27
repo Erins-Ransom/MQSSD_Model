@@ -4,25 +4,43 @@ import matplotlib.pyplot as plt
 div = 1000000
 X = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024 ]
 
-# read = [ 1211167,1249277,1415169,2266819,2878579,3475015,3900280,4557277,5893542,8265029 ]
-# write= [ 2333909,2400728,2535071,2949662,3686764,4979255,5976841,7098203,9199453,14991572 ]
-
-# read_4 = [ 2318690,2348130,2490397,4014285,4424199,4612937,4799806,5219148,5694158,7230739 ] 
-# write_4 = [ 10516185,13485366,12732924,13381814,15467176,17471936,18981823,20531423,23354193,34611853 ]
-
-data = [[ 2383320,2423581,2554996,3040902,4006278,5220205,6005990,7133514,9241158,14990402,25287285 ], 
-        [ 5231349,5280411,5208048,5634650,6767124,7916367,8458867,9899874,12478775,21352676,43374321 ], 
-        [ 11246493,12674631,12696095,13647539,16120042,17814668,20079933,21909582,24477282,36161158,84862093 ],
-        [ 27160338,29943321,29439905,30979351,35292952,39938319,41706181,44892403,48779693,67673473,163830674 ]]
+data = [[ 1221893,1255109,1425698,2341854,3135212,3682565,4289196,5149214,6901756,10075717,16402519 ], 
+        [ 1517401,1533887,1619931,2593903,3185458,3763273,4149484,4696143,5700412,7278630,9956290 ], 
+        [ 2333576,2408991,3884454,4131537,4336583,4549140,4755288,5192335,5531163,6396251,7810427 ],
+        [ 7447985,8229933,8214634,8446518,8746083,8830761,8912066,8918228,9170515,9568743,10156639 ], 
+        [ 16516213,16484813,16580657,17087529,17700831,17785859,17736534,17870622,17992426,18200361,18555946 ], 
+        [ 33076835,33117358,33256588,34060742,35410564,35545304,35539845,35582292,35666737,35878374,36138770 ],
+        [ 66408051,66269650,66584041,68350983,71014788,71333764,71253832,71187797,71511871,71435395,473711066 ]]
 
 to_plot = [ [ x/div for x in line ] for line in data ]
 
+def t (k) :
+    k = max(k, 4)
+    return 0.0000027 + 0.000085 * 4 / k
+
+def R (f, k) :
+    f = max(f,4)
+    return k * 10 * 1024 * 1024 * ((0.0000009091 * 128/f) + (t(k) + 0.0000094) * (1 - 128/f)) / 4 
+
 
 # plt.xscale("log")
-plt.plot(X, to_plot[0], label = "1 thread", linestyle=" ", marker="o")
-plt.plot(X, to_plot[1], label = "2 threads", linestyle=" ", marker="o")
-plt.plot(X, to_plot[2], label = "4 threads", linestyle=" ", marker="o")
-plt.plot(X, to_plot[3], label = "8 threads", linestyle=" ", marker="o")
+
+
+# plt.plot(X, [R(x,1) for x in X], label = "R(f,1)", color = "blue", linestyle="-")
+# plt.plot(X, [R(x,2) for x in X], label = "R(f,2)", color = "orange", linestyle="-")
+# plt.plot(X, [R(x,4) for x in X], label = "R(f,4)", color = "purple", linestyle="-")
+# plt.plot(X, [R(x,8) for x in X], label = "R(f,8)", color = "gold", linestyle="-")
+
+y = 4
+z = 11
+# plt.plot(X[y:z], to_plot[0][y:z], label = "1 thread", color = "blue", linestyle=" ", marker="o")
+# plt.plot(X[y:z], to_plot[1][y:z], label = "2 threads", color = "orange", linestyle=" ", marker="o")
+plt.plot(X[y:z], to_plot[2][y:z], label = "4 threads", color = "blue", linestyle=" ", marker="o")
+plt.plot(X[y:z], to_plot[3][y:z], label = "8 threads", color = "orange", linestyle=" ", marker="o")
+plt.plot(X[y:z], to_plot[4][y:z], label = "16 threads", color = "purple", linestyle=" ", marker="o")
+plt.plot(X[y:z], to_plot[5][y:z], label = "32 threads", color = "red", linestyle=" ", marker="o")
+# plt.plot(X[y:z], to_plot[6][y:z], label = "64 threads", color = "gold", linestyle=" ", marker="o")
+
 
 plt.legend()
 plt.ylabel('Time to Read/Write 10 GiB (sec)')
