@@ -1596,4 +1596,4 @@ endif()
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
-  add_subdirectory(mqssd)
+add_subdirectory(mqssd)

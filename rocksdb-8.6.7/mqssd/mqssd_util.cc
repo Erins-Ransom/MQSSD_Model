@@ -4,6 +4,11 @@
 #include "mqssd_util.h"
 
 
+std::string uint64ToString(const uint64_t word) {
+    uint64_t endian_swapped_word = __builtin_bswap64(word);
+    return std::string(reinterpret_cast<const char*>(&endian_swapped_word), 8);
+}
+
 // assume compression ratio = 0.5
 void setValueBuffer(char* value_buf, int size,
 		            std::mt19937_64 &e,
@@ -19,15 +24,15 @@ void setValueBuffer(char* value_buf, int size,
 }
 
 template<typename T>
-std::vector<rocksdb::Slice> generateValues(const std::vector<T>& keys) {
-    char value_buf[VAL_SZ];
+std::vector<rocksdb::Slice> generateValues(const std::vector<T>& keys, size_t val_sz) {
+    char value_buf[val_sz];
     std::mt19937_64 e(2017);
     std::uniform_int_distribution<unsigned long long> dist(0, ULLONG_MAX);
     std::vector<rocksdb::Slice> vals;
 
     for (size_t i = 0; i < keys.size(); i++) {
-        setValueBuffer(value_buf, VAL_SZ, e, dist);
-        vals.push_back(rocksdb::Slice(value_buf, VAL_SZ));
+        setValueBuffer(value_buf, val_sz, e, dist);
+        vals.push_back(rocksdb::Slice(value_buf, val_sz));
     }
 
     return vals;
@@ -105,5 +110,22 @@ void waitForBGCompactions(rocksdb::DB* db) {
     }
 
     // Print out initial LSM state
+    printLSM(db);
+}
+
+void printStats(rocksdb::DB* db,
+                rocksdb::Options* options) {
+
+    sleep(10);
+
+    rocksdb::SetPerfLevel(rocksdb::PerfLevel::kDisable);
+    std::cout << rocksdb::get_perf_context()->ToString() << std::endl;
+    std::cout << rocksdb::get_iostats_context()->ToString() << std::endl;
+
+    std::cout << "RocksDB Statistics : " << std::endl;
+    std::cout << options->statistics->ToString() << std::endl;
+
+    std::cout << "----------------------------------------" << std::endl;
+
     printLSM(db);
 }
