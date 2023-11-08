@@ -1,5 +1,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/perf_context.h"
+#include "rocksdb/iostats_context.h"
 
 #include "mqssd_util.h"
 
@@ -23,8 +26,7 @@ void setValueBuffer(char* value_buf, int size,
     }
 }
 
-template<typename T>
-std::vector<rocksdb::Slice> generateValues(const std::vector<T>& keys, size_t val_sz) {
+std::vector<rocksdb::Slice> generateValues(const std::vector<std::string>& keys, size_t val_sz) {
     char value_buf[val_sz];
     std::mt19937_64 e(2017);
     std::uniform_int_distribution<unsigned long long> dist(0, ULLONG_MAX);
@@ -121,8 +123,6 @@ void printStats(rocksdb::DB* db,
     rocksdb::SetPerfLevel(rocksdb::PerfLevel::kDisable);
     std::cout << rocksdb::get_perf_context()->ToString() << std::endl;
     std::cout << rocksdb::get_iostats_context()->ToString() << std::endl;
-
-    std::cout << "RocksDB Statistics : " << std::endl;
     std::cout << options->statistics->ToString() << std::endl;
 
     std::cout << "----------------------------------------" << std::endl;

@@ -6,8 +6,7 @@
 
 std::string uint64ToString(const uint64_t word);
 
-template<typename T>
-std::vector<rocksdb::Slice> generateValues(const std::vector<T>& keys, size_t val_sz);
+std::vector<rocksdb::Slice> generateValues(const std::vector<std::string>& keys, size_t val_sz);
 
 void printCompactionAndDBStats(rocksdb::DB* db);
 void printLSM(rocksdb::DB* db);
