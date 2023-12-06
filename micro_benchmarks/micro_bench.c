@@ -50,7 +50,7 @@ void * worker_thread(void * arg)
             }
             if (ret < access_size)
             {
-                fprintf(stderr, "ERROR: only %d B of %d B read/written: %s\n", ret, access_size, strerror(errno));
+                fprintf(stderr, "ERROR: only %d B of %lu B read/written: %s\n", ret, access_size, strerror(errno));
             }
             
         }
@@ -58,7 +58,7 @@ void * worker_thread(void * arg)
     else
     {
         char file_name[128];
-        sprintf(file_name, "thread_%u", pthread_self());
+        sprintf(file_name, "thread_%lu", pthread_self());
         if (read_flag)
         {
             fd = open("file", O_RDONLY);
