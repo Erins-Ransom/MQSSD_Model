@@ -30,6 +30,8 @@ fi
 
 # rm ${OP}.csv
 make micro_bench
+
+for OP in "write" "read"; do 
 echo -ne " [STATUS] gernerating ${FILE_SIZE} MB file...\r"
 head -c ${FILE_SIZE}M </dev/urandom >file
 for (( i = 1; i <= $ROUNDS; i++ )); do
@@ -53,3 +55,4 @@ for (( i = 1; i <= $ROUNDS; i++ )); do
 done
 
 echo "Benchmark complete, results written to num_threads_${OP}_${OR}.csv"
+done
