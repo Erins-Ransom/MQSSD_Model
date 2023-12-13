@@ -22,15 +22,15 @@ OP="read"
 # then
 #     OP="write"
 # fi
-# for dev in "5" "4" "3"; do
-for dev in "4" "3"; do
+
+make micro_bench
+for dev in "5" "4" "3"; do
     FILE="dev_${dev}/file"
-    make micro_bench
-    echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
-    head -c ${FILE_SIZE}M </dev/urandom >file
+    # echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
+    # head -c ${FILE_SIZE}M </dev/urandom >${FILE}
 
     for OP in "read" "write"; do
-        OUT="results/gen_${dev}/access_size_${OP}.csv
+        OUT="results/gen_${dev}/access_size_${OP}-$(date +%Y-%m-%d-%T).csv"
         if [ ${OP} = "read" ]
         then 
             RW_FLAG="r"
@@ -41,9 +41,11 @@ for dev in "4" "3"; do
         for THREADS in 1 2 4 8 16 32 64; do 
             echo "${THREADS}"
             for RW_SIZE in 4 8 16 32 64 128 256 512 1024; do
+                echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
+                head -c ${FILE_SIZE}M </dev/urandom >${FILE}
                 echo -ne " [STATUS] ${OP} $(( THREADS*10 )) GiB in ${RW_SIZE} KiB chunks with ${THREADS} threads...\033[0K\r"
                 sync; echo 3 > /proc/sys/vm/drop_caches
-                ./micro_bench ${THREADS} ${RW_SIZE} ${FILE_SIZE} ${RW_FLAG} r >> ${OUT}
+                ./micro_bench ${FILE} ${THREADS} ${RW_SIZE} ${FILE_SIZE} ${RW_FLAG} >> ${OUT}
                 if [ ${RW_SIZE} -lt ${MAX_RW_SIZE} ]
                 then
                     echo -n "," >> ${OUT}
