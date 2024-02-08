@@ -1,11 +1,12 @@
 #!/bin/bash
 
+USER="wintermute"
 # "r" for read "w" for write
 # RW_FLAG=$1
 # size to be read/written each time (KiB)
 # MAX_RW_SIZE=$2
-MAX_RW_SIZE=1024 # 1 MiB
-# size of the file read/written from/to (MiB)
+MAX_RW_SIZE=1048576 # 1 MiB
+# size of the file read/written from/to (B)
 # FILE_SIZE=$3
 FILE_SIZE=20480 # 20 GiB
 # number of threads to run
@@ -29,8 +30,8 @@ for dev in "5" "4" "3"; do
     # echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
     # head -c ${FILE_SIZE}M </dev/urandom >${FILE}
 
-    for OP in "read" "write"; do
-        OUT="results/gen_${dev}/access_size_${OP}-$(date +%Y-%m-%d-%T).csv"
+    for OP in "_read" "_write"; do
+        OUT="results/gen_${dev}/${OP}/access_size${OP}-$(date +%Y-%m-%d-%T).csv"
         if [ ${OP} = "read" ]
         then 
             RW_FLAG="r"
@@ -38,9 +39,10 @@ for dev in "5" "4" "3"; do
             RW_FLAG="w"
         fi
         # for (( i = 1; i <= $ROUNDS; i++ )); do
-        for THREADS in 1 2 4 8 16 32 64; do 
+        for THREADS in 1 2 4 8 16 32 64 128; do 
             echo "${THREADS}"
-            for RW_SIZE in 4 8 16 32 64 128 256 512 1024; do
+            for RW_SIZE in 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152; do
+            # for RW_SIZE in 2097152; do
                 echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
                 head -c ${FILE_SIZE}M </dev/urandom >${FILE}
                 echo -ne " [STATUS] ${OP} $(( THREADS*10 )) GiB in ${RW_SIZE} KiB chunks with ${THREADS} threads...\033[0K\r"
@@ -56,11 +58,12 @@ for dev in "5" "4" "3"; do
 
                 rm thread_* 2> /dev/null
 
-                echo " [STATUS] ${OP} $(( THREADS*10 )) GiB in ${RW_SIZE} KiB chunks with ${THREADS} threads - DONE."
+                echo " [STATUS] ${OP} $(( THREADS*10 )) GiB in ${RW_SIZE} B chunks with ${THREADS} threads - DONE."
             done
         done
 
         echo "${OP} benchmark on device ${dev} complete, results written to ${OUT}"
+        chown ${USER} ${OUT}
     done
 
 done
