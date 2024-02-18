@@ -19,6 +19,10 @@
                               ).count() << " us " << std::endl;
 
 
+static size_t nthreads;
+static size_t fanout;
+
+
 void init(rocksdb::DB** db,
           rocksdb::Options* options, 
           rocksdb::BlockBasedTableOptions* table_options) {
@@ -134,6 +138,10 @@ int main(int argc, char** argv) {
 
     INIT_EXP_TIMER
 
+    assert (argc == 3);
+    nthreads = strtoull(argv[1], nullptr, 10);
+    fanout = strtoull(argv[2], nullptr, 10);
+
     rocksdb::DB* db;
     rocksdb::Options options;
     rocksdb::BlockBasedTableOptions table_options;
@@ -150,10 +158,10 @@ int main(int argc, char** argv) {
     options.max_bytes_for_level_base = num_L1_files * options.target_file_size_base;    // Default 4 L1 files
 
     options.target_file_size_multiplier = 1;                                            // Same SST file size for all levels by default
-    options.max_bytes_for_level_multiplier = 10;                                        // Default fanout is 10
+    options.max_bytes_for_level_multiplier = fanout;                                    // Default fanout is 10
 
     // Number of background threads for flushes and compactions (default: 1)   
-    options.IncreaseParallelism(6);
+    options.IncreaseParallelism(nthreads);
 
     init(&db, &options, &table_options);
 
