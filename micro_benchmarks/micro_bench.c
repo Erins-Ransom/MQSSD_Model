@@ -58,7 +58,7 @@ void * worker_thread(void * arg)
 
 int main(int argc, char ** argv)
 {
-    // parse arguments: <file> <num_threads> <access_size(KB)> <file_size(MB)> <r/w> <r/s>
+    // parse arguments: <file> <num_threads> <access_size(KB)> <file_size(MB)> <r/w>
     working_file = argv[1];
     int num_threads = atoi(argv[2]);
     access_size = (size_t) atoi(argv[3]);

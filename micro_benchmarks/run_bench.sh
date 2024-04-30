@@ -25,25 +25,29 @@ OP="read"
 # fi
 
 make micro_bench
-for dev in "5" "4" "3"; do
-    FILE="dev_${dev}/file"
+# for dev in "Crucial" "Samsung" "PNY"; do
+for dev in "Samsung"; do
+    FILE="../dev/${dev}/file"
     echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
     head -c ${FILE_SIZE}M </dev/urandom >${FILE}
 
-    for OP in "_read" "_write"; do
-        if [ ${dev} == "5" ]
+    if [ ${dev} == "Crucial" ]
         then
-            OUT_DIR="results/Crucial/${OP}"
-        elif [ ${dev} == "4" ]
+            DEVICE="/dev/nvme0n1"
+        elif [ ${dev} == "Samsung" ]
         then
-            OUT_DIR="results/Samsung/${OP}"
-        elif [ ${dev} == "3" ]
+            DEVICE="/dev/nvme2n1"
+        elif [ ${dev} == "3PNY" ]
         then
-            OUT_DIR="results/PNY/${OP}"
+            DEVICE="/dev/nvme1n1"
         else
             echo "Invalid dev"
             exit 1
         fi
+
+    OUT_DIR="results/${dev}/${OP}"
+
+    for OP in "_read" "_write"; do
         OUT="${OUT_DIR}/access_size${OP}-$(date +%Y-%m-%d-%T).csv"
         if [ ${OP} = "read" ]
         then 
@@ -55,25 +59,11 @@ for dev in "5" "4" "3"; do
         for THREADS in 1 2 4 8 16 32 64 128; do 
             echo "${THREADS}"
             for RW_SIZE in 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152; do
-            # for RW_SIZE in 2097152; do
                 echo -ne " [STATUS] gernerating ${FILE_SIZE} MiB file...\r"
                 head -c ${FILE_SIZE}M </dev/urandom >${FILE}
                 echo -ne " [STATUS] ${OP} $(( THREADS*10 )) GiB in ${RW_SIZE} KiB chunks with ${THREADS} threads...\033[0K\r"
                 sync; echo 3 > /proc/sys/vm/drop_caches
 
-                if [ ${dev} == "5" ]
-                then
-                    DEVICE="/dev/nvme0n1"
-                elif [ ${dev} == "4" ]
-                then
-                    DEVICE="/dev/nvme2n1"
-                elif [ ${dev} == "3" ]
-                then
-                    DEVICE="/dev/nvme1n1"
-                else
-                    echo "Invalid dev"
-                    exit 1
-                fi
                 
                 blktrace "${DEVICE}" -D "${OUT_DIR}" -a issue -a complete &
                 BTRACE_PID=$!
