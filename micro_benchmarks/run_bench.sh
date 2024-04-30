@@ -1,28 +1,9 @@
 #!/bin/bash
 
 USER="wintermute"
-# "r" for read "w" for write
-# RW_FLAG=$1
-# size to be read/written each time (KiB)
-# MAX_RW_SIZE=$2
 MAX_RW_SIZE=1048576 # 1 MiB
-# size of the file read/written from/to (B)
-# FILE_SIZE=$3
 FILE_SIZE=20480 # 20 GiB
-# number of threads to run
-# THREADS=$4
-# number of rounds to repeat the experiment
-# ROUNDS=$5
 OP="read"
-
-# if [ ${THREADS} -gt "64" ]
-# then
-#     THREADS=64
-# fi
-# if [ $RW_FLAG = "w" ]
-# then
-#     OP="write"
-# fi
 
 make micro_bench
 # for dev in "Crucial" "Samsung" "PNY"; do
