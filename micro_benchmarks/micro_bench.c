@@ -61,7 +61,7 @@ int main(int argc, char ** argv)
     // parse arguments: <file> <num_threads> <access_size(KB)> <file_size(MB)> <r/w> <r/s>
     working_file = argv[1];
     int num_threads = atoi(argv[2]);
-    access_size = 1024 * (size_t) atoi(argv[3]);
+    access_size = (size_t) atoi(argv[3]);
     // num_accesses = (size_t) atoi(argv[3]);
     num_accesses = (size_t) 10 * 1024 * 1024 * 1024 / access_size; 
     file_size = 1024 * 1024 * (size_t) atoi(argv[4]);

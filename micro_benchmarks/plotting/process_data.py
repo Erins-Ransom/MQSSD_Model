@@ -5,26 +5,32 @@ import os
 
 
 B = 512
-P = 8
+P = 16
 I = int(np.log2(P))
 I_max = 8
 thread_counts = np.array([2**i for i in range(0, I_max)], dtype=np.float64)
-# P = { "gen_5" : 8, "gen_4" : 8, "gen_3" : 4 }
+# P = { "Crucial" : 8, "Samsung" : 8, "PNY" : 4 }
 
-pages_read = 10 * 1024 * 1024 * 1024 / B
+pages_per_thread = 10 * 1024 * 1024 * 1024 / B
 acc_size = [ 2 ** i for i in range(9, 21)]
-rand_accs = np.array([ pages_read / size for size in acc_size ], dtype=np.float64)
+rand_accs = np.array([ pages_per_thread / size for size in acc_size ], dtype=np.float64)
 
 #  colors = ["darkgoldenrod", "darkorchid", "cornflowerblue", "gold", "tan", "violet", "mediumpurple", "goldenrod"]
-colors = ["lightskyblue", "orchid", "burlywood", "pink", "gold", "deepskyblue", "darkorchid", "darkgoldenrod"]
+# colors = ["lightskyblue", "orchid", "burlywood", "pink", "gold", "deepskyblue", "darkorchid", "darkgoldenrod"]
+colors = ["lightcoral", "chocolate", "tan", "gold", "yellowgreen", "skyblue", "mediumpurple", "orchid"]
 
 data = {}
 models = {}
+R_squares = {}
 
 
+
+#############################################################
+#                   Data Processing                         #
+#############################################################
 
 def load_data():
-    for dev in ["gen_5", "gen_4", "gen_3"]:
+    for dev in ["Crucial", "Samsung", "PNY"]:
         for op in ["_write", "_read"]:
             path = "../results/" + dev + "/" + op + "/"
             files = os.listdir(path)
@@ -37,23 +43,25 @@ def print_data():
     print("Thread Count : Data")
     for op in ["_write", "_read"]:
         print(op)
-        for dev in ["gen_5", "gen_4", "gen_3"]:
+        for dev in ["Crucial", "Samsung", "PNY"]:
             print(dev)
-            for i in range(0, 8):
+            for i in range(0, I_max):
                 print("{} : {}".format(2**i, str(data[dev + op][i])))
         
 
 
 def fit_data():
     m = []
-    for dev in ["gen_5", "gen_4", "gen_3"]:
+    for dev in ["Crucial", "Samsung", "PNY"]:
         for op in ["_write", "_read"]:
             m = []
             b = []
             models[dev + op] = []
             for i in range(0, I_max):
                 A = np.vstack([rand_accs, np.ones(len(rand_accs), dtype=np.float64)]).T
-                models[dev + op].append(np.linalg.lstsq(A, data[dev + op][i] / (2**i), rcond=None)[0])
+                fit = np.linalg.lstsq(A, data[dev + op][i] / (2**i), rcond=None)
+                R_squares[dev + op] = 
+                models[dev + op].append(fit[0])
                 m.append(models[dev + op][i][0])
                 b.append(models[dev + op][i][1])
 
@@ -64,22 +72,22 @@ def fit_data():
 def print_models():
     for op in ["_write", "_read"]:
         print(op)
-        for dev in ["gen_5", "gen_4", "gen_3"]:
+        for dev in ["Crucial", "Samsung", "PNY"]:
             print(dev)
             print(models[dev + op + "_k"])
             for i in range(0, I_max):
-                print(models[dev + op][i])
+                print(models[dev + op][i], "bandwith cost = {}".format(models[dev + op][i][1] / pages_per_thread))
 
 
 
 
 def plot_model_params():
     fig, plots = plt.subplots(4,3)
-    col_index = {"gen_5" : 0, "gen_4" : 1, "gen_3" : 2}
+    col_index = {"Crucial" : 0, "Samsung" : 1, "PNY" : 2}
     row_index = {"_write_m" : 0, "_write_b" : 1, "_read_m" : 2, "_read_b" : 3}
-    cost = {"_write_m" : "s", "_write_b" : "B", "_read_m" : "t", "_read_b" : "a"}
+    cost = {"_write_m" : "s(k)", "_write_b" : "B(k)", "_read_m" : "t(k)", "_read_b" : "a(k)"}
     model_index = {"_m" : 0, "_b" : 1}
-    for dev in ["gen_5", "gen_4", "gen_3"]:
+    for dev in ["Crucial", "Samsung", "PNY"]:
         col = col_index[dev]
         plots[0, col].set_title(dev)
         for op in ["_write", "_read"]:
@@ -90,8 +98,8 @@ def plot_model_params():
                 vals = np.array([models[dev + op][i][j] for i in range(0, I_max)], dtype=np.float64)
                 fit = models[dev + op + "_k"][j](thread_counts)
                 if param == "_b":
-                    vals /= pages_read
-                    fit /= pages_read
+                    vals /= pages_per_thread
+                    fit /= pages_per_thread
 
                 plots[row, col].plot(thread_counts, vals, linestyle=" ", marker="o", color=colors[j + 5 * (row // 2)])
                 plots[row, col].set(xlabel="Thread Count", ylabel=cost[op + param] + " (usec)")
@@ -100,17 +108,18 @@ def plot_model_params():
     for plot in plots.flat:
         plot.label_outer()
 
-    fig.suptitle('Model Parameters by Thread Count')
+    # fig.suptitle('Model Parameters by Thread Count')
+    fig.tight_layout()
     plt.show()
 
 
 def plot_per_thread_models():
     fig, plots = plt.subplots(2,3)
-    col_index = {"gen_5" : 0, "gen_4" : 1, "gen_3" : 2}
+    col_index = {"Crucial" : 0, "Samsung" : 1, "PNY" : 2}
     row_index = {"_write" : 0, "_read" : 1}
     band_cost = {"_write" : "B", "_read" : "a"}
     setup_cost = {"_write" : "s", "_read" : "t"}
-    for dev in ["gen_5", "gen_4", "gen_3"]:
+    for dev in ["Crucial", "Samsung", "PNY"]:
         col = col_index[dev]
         plots[0, col].set_title(dev)
         for op in ["_write", "_read"]:
@@ -118,7 +127,7 @@ def plot_per_thread_models():
             for i in range(0, I_max):
                 plots[row, col].plot(rand_accs, data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
                 plots[row, col].plot(rand_accs, (rand_accs * models[dev + op][i][0] + models[dev + op][i][1]) * (2**i) / 1000000, color=colors[i], 
-                                     label="k={}, {}={}, {}={} usec".format(2**i, setup_cost[op], round(models[dev + op][i][0], 1), band_cost[op], round(models[dev + op][i][1] / pages_read, 2)))
+                                     label="k={}, {}={}, {}={} usec".format(2**i, setup_cost[op], round(models[dev + op][i][0], 1), band_cost[op], round(models[dev + op][i][1] / pages_per_thread, 2)))
                 plots[row, col].set(xlabel="Number of Random Accesses", ylabel="Total Latency (sec)", xscale="log")
             plots[row, col].legend()
 
@@ -128,17 +137,102 @@ def plot_per_thread_models():
     fig.suptitle('Latency by Number of Random Accesses')
     plt.show()
 
+#############################################################
 
-def cost_function(dev, op, num_rand_accs, num_threads):
-    return (models[dev + op + "_k"][0](num_threads) * num_rand_accs + models[dev + op + "_k"][1](num_threads)) * num_threads / 1000000
+
+
+#############################################################
+#             Micro-Benchmark Cost Functions                #
+#############################################################
+
+def cost_function(dev, op, rand_accs_per_thread, num_threads):
+    return (models[dev + op + "_k"][0](num_threads) * rand_accs_per_thread + models[dev + op + "_k"][1](num_threads)) * num_threads / 1000000
+
+
+def DAM_cost(dev, op, rand_accs_per_thread, num_threads):
+    unit_cost = models[dev + op][0][1] / pages_per_thread
+    return np.ones(len(rand_accs_per_thread), dtype=np.float64) * pages_per_thread * num_threads * unit_cost / 1000000
   
 
-def plot_by_random_accesses():
+def PDAM_cost(dev, op, rand_accs_per_thread, num_threads):
+    unit_cost = models[dev + op][0][1] / pages_per_thread
+    if pages_per_thread > P :
+        return np.ones(len(rand_accs_per_thread), dtype=np.float64) * pages_per_thread * num_threads * unit_cost / ( P * 1000000 )
+    else :
+        return np.ones(len(rand_accs_per_thread), dtype=np.float64) * pages_per_thread * unit_cost / 1000000
+    
+
+def affine_cost(dev, op, rand_accs_per_thread, num_threads):
+    return (models[dev + op][0][0] * rand_accs_per_thread + models[dev + op][0][1]) * num_threads / 1000000
+
+
+#############################################################
+
+
+
+#############################################################
+#                   Model Comparisons                       #
+#############################################################
+
+def plot_model_comparison(dev):
+    col_index = {DAM_cost : 0, PDAM_cost : 1, affine_cost : 2, cost_function : 3}
+    col_label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", cost_function : "MQSSD"}
+    row_index = {"_write" : 0, "_read" : 1}
+    label_op = {"_write" : "Write", "_read" : "Read"}
+    fig, plots = plt.subplots(2, 4)
+    y_top = { "_write" : data[dev + "_write"][-2].max() / 1000000 + 50, "_read" : data[dev + "_read"][-2].max() / 1000000 + 10}
+    y_bottom = { "_write" : -50, "_read" : -5}
+    for cost_model in [DAM_cost, PDAM_cost, affine_cost, cost_function]:
+        col = col_index[cost_model]
+        plots[0, col].set_title(col_label[cost_model])
+        for op in ["_write", "_read"]:
+            row = row_index[op]
+            for i in range(0, I_max):
+                plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
+                plots[row, col].plot(rand_accs * (2**i), cost_model(dev, op, rand_accs, 2**i), color=colors[i])
+            plots[row, col].set(ylabel="Time to {} 10 GiB / Thread (sec)".format(label_op[op]), xlabel="Total Random Accesses", xscale="log")
+            plots[row, col].set_ylim(top=y_top[op], bottom=y_bottom[op])
+
+
+    for plot in plots.flat:
+        plot.label_outer()
+
+    # fig.suptitle('Microbenchmark Model Comparison')
+    plots[0, 0].legend()
+    fig.tight_layout()
+    plt.show()
+
+
+
+
+def plot_single_model(dev, cost_model, op):
+    label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", cost_function : "MQSSD", None : None } 
+    y_top = { "_write" : data[dev + "_write"].max() / 1000000 + 10, "_read" : data[dev + "_read"].max() / 1000000 + 10}
+    y_bottom = { "_write" : -100, "_read" : -5}
+    for i in range(0, I_max):
+        plt.plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
+        if cost_model != None :
+            plt.plot(rand_accs * (2**i), cost_model(dev, op, rand_accs, 2**i), color=colors[i])
+    plt.ylabel("Time to {} 10 GiB / Thread (sec)".format(op))
+    plt.xlabel("Total Random Accesses")
+    plt.xscale("log")
+    plt.ylim(top=y_top[op], bottom=y_bottom[op])
+    plt.legend()
+    if cost_model == None :
+        plt.title("Benchmark Results")
+    else :
+        plt.title("{} Model vs. Benchmark".format(label[cost_model]))
+    plt.show()
+
+
+
+
+def plot_by_random_accesses_per_thread():
     fig, plots = plt.subplots(2,3)
-    col_index = {"gen_5" : 0, "gen_4" : 1, "gen_3" : 2}
+    col_index = {"Crucial" : 0, "Samsung" : 1, "PNY" : 2}
     row_index = {"_write" : 0, "_read" : 1}
     cost_type = {"_write" : "W", "_read" : "R"}
-    for dev in ["gen_5", "gen_4", "gen_3"]:
+    for dev in ["Crucial", "Samsung", "PNY"]:
         col = col_index[dev]
         plots[0, col].set_title(dev)
         for op in ["_write", "_read"]:
@@ -146,57 +240,84 @@ def plot_by_random_accesses():
             for i in range(0, I_max):
                 plots[row, col].plot(rand_accs, data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
                 plots[row, col].plot(rand_accs, cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
-                plots[row, col].set(xlabel="Number of Random Accesses", ylabel="Total Latency (sec)", xscale="log")
+                plots[row, col].set(xlabel="Random Accesses Per-Thread", ylabel="Time to {} 10 GiB / Thread (sec)".format(op), xscale="log")
             plots[row, col].legend()
 
     for plot in plots.flat:
         plot.label_outer()
 
-    fig.suptitle('Latency by Number of Random Accesses')
+    fig.suptitle('Latency by Number of Random Accesses Per Thread')
     plt.show()
 
 
-def plot_writes_by_access_size():
-    fig, plots = plt.subplots(1,3)
-    op = "_write"
-    plots_index = 0
-    for dev in ["gen_5", "gen_4", "gen_3"]:    
-        for i in range(0, I_max):
-            plots[plots_index].plot(rand_accs, cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label = "W(r,{})".format(2**i), linestyle = "-")
-            plots[plots_index].plot(rand_accs, data[dev + op][i] / 1000000, label ="{} threads".format(2**i),  color=colors[i], linestyle=" ", marker="o")
-        plots[plots_index].set(xlabel="Number of Random Pages Read", ylabel="Time to Write 10 GiB / Thread (sec)", xscale="log")
-        plots[plots_index].set_title(dev)
-        plots_index += 1
+def plot_by_total_random_accesses():
+    fig, plots = plt.subplots(2,3)
+    label_op = {"_write" : "Write", "_read" : "Read"}
+    col_index = {"Crucial" : 0, "Samsung" : 1, "PNY" : 2}
+    row_index = {"_write" : 0, "_read" : 1}
+    cost_type = {"_write" : "W", "_read" : "R"}
+    for dev in ["Crucial", "Samsung", "PNY"]:
+        col = col_index[dev]
+        plots[0, col].set_title(dev)
+        for op in ["_write", "_read"]:
+            row = row_index[op]
+            for i in range(0, I_max):
+                plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
+                # plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
+                # plots[row, col].plot(rand_accs * (2**i), cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
+                plots[row, col].set(xlabel="Total Random Accesses", ylabel="Time to {} 10 GiB / Thread (sec)".format(label_op[op]), xscale="log")
+            
 
-    for plot in plots:
+    for plot in plots.flat:
         plot.label_outer()
-        plot.legend()
 
-    fig.suptitle('Write Latency by Access Size')
+    # fig.suptitle('Latency by Total Random Accesses & Thread Count')
+    plots[0, 0].legend()
+    fig.tight_layout()
+    plt.show()
+
+#############################################################
+
+
+
+
+
+#############################################################
+#                   LSM-Tree Figures                        #
+#############################################################
+    
+
+
+def lookup_cost_by_fannout(dev, N=100 * 1024 * 1024 * 1024):
+    
+    F_vals = np.array([2,4,6,8,10,12,14,16,18,20], dtype=np.float64) 
+        
+    def cost(F, tiered):
+        if not tiered :
+            k = np.log(N/512.0) / np.log(F)
+    
+        else:
+            k = F * np.log(N/512.0) / np.log(F)
+
+        return  k * (models[dev + "_read_k"][0](k) + models[dev + "_read_k"][1](k) / pages_per_thread) / 1000
+        
+    plt.plot(F_vals, cost(F_vals, False), label="Leveled")
+    plt.plot(F_vals, cost(F_vals, True), label="Tiered")
+    
+    plt.ylabel("Predicted Lookup Latency (ms)")
+    plt.xlabel("Growth Factor (F)")
+    plt.legend()
     plt.show()
 
 
 
 
 
+#############################################################
 
 
-# def fit_data(X, Y):
 
-#     m = ((X - X.mean()) * (Y - Y.mean())).sum() / ((X - X.mean()) * (X - X.mean())).sum()
-#     b = Y.mean() - m * X.mean()
 
-#     return m, b
-
-# def train_models():
-#     for dev in ["gen_5"]: #, "gen_4", "gen_3"]:
-#         # for op in ["_write", "_read"]:
-#         for op in ["_read"]:
-#             models[dev + op] = LinearRegression()
-#             models[dev + op].fit(rand_accs, data[dev + op][0] )
-#             # models[dev + op + "_k"] = LinearRegression()
-#             # models[dev + op + "_k"].fit()
-        
 
 
 
@@ -212,4 +333,9 @@ print_models()
 # plot_model_params()
 # plot_per_thread_models()
 # plot_writes_by_access_size()
-plot_by_random_accesses()
+# plot_by_random_accesses_per_thread()
+# plot_by_total_random_accesses()
+# plot_model_comparison("Samsung")
+# plot_single_model("Samsung", affine_cost, "_read")
+# lookup_cost_by_fannout("Samsung")
+

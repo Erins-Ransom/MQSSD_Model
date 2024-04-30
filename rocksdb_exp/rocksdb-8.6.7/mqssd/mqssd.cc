@@ -6,6 +6,7 @@
 #include "rocksdb/iostats_context.h"
 
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <random>
 
@@ -19,6 +20,9 @@
                               ).count() << " us " << std::endl;
 
 
+static std::string DATA_DIR;
+static size_t nkeys;
+static size_t nqueries;
 static size_t nthreads;
 static size_t fanout;
 
@@ -53,6 +57,9 @@ void init(rocksdb::DB** db,
 
     // Use LZ4 compression as recommended by RocksDB Wiki
     options->compression = rocksdb::CompressionType::kLZ4Compression;
+
+    // Keep files open by default - indexes and filters are pre-loaded if pinned when the cache is warmed
+    options->max_open_files = -1;
     
     options->table_factory.reset(rocksdb::NewBlockBasedTableFactory(*table_options));
 
@@ -65,6 +72,8 @@ void init(rocksdb::DB** db,
 void warmCache(rocksdb::DB* db,
                const std::vector<std::string>& keys, 
                size_t sample_gap) {
+    
+    sample_gap = std::max(sample_gap, 1UL);
 
     rocksdb::ReadOptions read_options = rocksdb::ReadOptions();
     rocksdb::Status s;
@@ -82,29 +91,50 @@ void warmCache(rocksdb::DB* db,
     }
 }
 
-std::vector<std::string> generateKeys(size_t nkeys) {
-    std::vector<std::string> keys;
-    keys.reserve(nkeys);
+// std::vector<std::string> generateKeys(size_t nkeys) {
+//     std::vector<std::string> keys;
+//     keys.reserve(nkeys);
 
-    std::random_device rd;  // Will be used to obtain a seed for the random number engine
-    std::mt19937_64 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
-    std::uniform_int_distribution<uint64_t> uni_dist(0, std::numeric_limits<uint64_t>::max());
+//     std::random_device rd;  // Will be used to obtain a seed for the random number engine
+//     std::mt19937_64 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
+//     std::uniform_int_distribution<uint64_t> uni_dist(0, std::numeric_limits<uint64_t>::max());
 
-    while (keys.size() < nkeys) {
-        uint64_t number = uni_dist(gen);
-        keys.push_back(uint64ToString(number));
+//     while (keys.size() < nkeys) {
+//         uint64_t number = uni_dist(gen);
+//         keys.push_back(uint64ToString(number));
+//     }
+
+//     return keys;
+// }
+
+// assume compression ratio = 0.5
+void setValueBuffer(char* value_buf, int size,
+		            std::mt19937_64 &e,
+		            std::uniform_int_distribution<unsigned long long>& dist) {
+    memset(value_buf, 0, size);
+    int pos = size / 2;
+    while (pos < size) {
+        uint64_t num = dist(e);
+        char* num_bytes = reinterpret_cast<char*>(&num);
+        memcpy(value_buf + pos, num_bytes, 8);
+        pos += 8;
     }
-
-    return keys;
 }
 
-void runWriteWorkload(rocksdb::DB* db, const std::vector<std::string>& keys, const std::vector<rocksdb::Slice>& vals) {
+void runWriteWorkload(rocksdb::DB* db, size_t val_sz) {
+    std::ifstream keyFile;
+    keyFile.open(DATA_DIR + "/keys/" + std::to_string(nkeys) + ".txt");
+
+    uint64_t key;
     rocksdb::WriteOptions write_options = rocksdb::WriteOptions();
     rocksdb::Status s;
+    char value_buf[val_sz];
+    std::mt19937_64 e(2024);
+    std::uniform_int_distribution<unsigned long long> dist(0, ULLONG_MAX);
 
-    // Use RocksDB Put to get "normal" LSM tree shape (all levels populated somewhat)
-    for (size_t i = 0; i < keys.size(); i++) {
-        s = db->Put(write_options, rocksdb::Slice(keys[i]), vals[i]);
+    while (keyFile >> key) {
+        setValueBuffer(value_buf, val_sz, e, dist);
+        s = db->Put(write_options, rocksdb::Slice(uint64ToString(key)), rocksdb::Slice(value_buf, val_sz));
         if (!s.ok()) {
             std::cout << s.ToString().c_str() << "\n";
             assert(false);
@@ -138,23 +168,30 @@ int main(int argc, char** argv) {
 
     INIT_EXP_TIMER
 
-    assert (argc == 3);
-    nthreads = strtoull(argv[1], nullptr, 10);
-    fanout = strtoull(argv[2], nullptr, 10);
+    assert (argc == 6);
+
+    DATA_DIR = argv[1];
+    nkeys = strtoull(argv[2], nullptr, 10);
+    nqueries = strtoull(argv[3], nullptr, 10);
+    nthreads = strtoull(argv[4], nullptr, 10);
+    fanout = strtoull(argv[5], nullptr, 10);
 
     rocksdb::DB* db;
     rocksdb::Options options;
     rocksdb::BlockBasedTableOptions table_options;
     rocksdb::SetPerfLevel(rocksdb::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); 
 
-    size_t nkeys = 1000000;
     size_t val_sz = 512;
     size_t num_L1_files = 4;
 
+    options.num_levels = 5;
+
+    // options.level_compaction_dynamic_level_bytes = false;
+
     options.compaction_style = rocksdb::kCompactionStyleLevel;                          // Default Compaction is Tiered+Leveled.
 
-    options.write_buffer_size = 64 * 1048576;                                           // Memtable Size (default: 64 MB)
-    options.target_file_size_base = 64 * 1048576;                                       // L1 SST File Size (default: 64 MB)
+    options.write_buffer_size = 32 * 1048576;                                           // Memtable Size (default: 64 MB)
+    options.target_file_size_base = 32 * 1048576;                                       // Target SST File Size (default: 64 MB)
     options.max_bytes_for_level_base = num_L1_files * options.target_file_size_base;    // Default 4 L1 files
 
     options.target_file_size_multiplier = 1;                                            // Same SST file size for all levels by default
@@ -166,12 +203,7 @@ int main(int argc, char** argv) {
     init(&db, &options, &table_options);
 
     START_EXP_TIMER
-    std::vector<std::string> keys = generateKeys(nkeys);
-    std::vector<rocksdb::Slice> vals = generateValues(keys, val_sz);
-    STOP_EXP_TIMER("Generating Workload")
-
-    START_EXP_TIMER
-    runWriteWorkload(db, keys, vals);
+    runWriteWorkload(db, val_sz);
     STOP_EXP_TIMER("Write Workload")
 
     printStats(db, &options);
@@ -182,13 +214,13 @@ int main(int argc, char** argv) {
     rocksdb::get_perf_context()->EnablePerLevelPerfContext();
     rocksdb::get_iostats_context()->Reset();
 
-    START_EXP_TIMER
-    warmCache(db, keys, keys.size() / 1000000);
-    STOP_EXP_TIMER("Warm Cache")
+    // START_EXP_TIMER
+    // warmCache(db, keys, keys.size() / 1000000);
+    // STOP_EXP_TIMER("Warm Cache")
     
-    START_EXP_TIMER
-    runReadWorkload(db, keys);
-    STOP_EXP_TIMER("Read Workload")
+    // START_EXP_TIMER
+    // runReadWorkload(db);
+    // STOP_EXP_TIMER("Read Workload")
 
     // Close database
     rocksdb::Status s = db->Close();

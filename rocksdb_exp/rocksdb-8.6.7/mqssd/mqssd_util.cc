@@ -12,33 +12,33 @@ std::string uint64ToString(const uint64_t word) {
     return std::string(reinterpret_cast<const char*>(&endian_swapped_word), 8);
 }
 
-// assume compression ratio = 0.5
-void setValueBuffer(char* value_buf, int size,
-		            std::mt19937_64 &e,
-		            std::uniform_int_distribution<unsigned long long>& dist) {
-    memset(value_buf, 0, size);
-    int pos = size / 2;
-    while (pos < size) {
-        uint64_t num = dist(e);
-        char* num_bytes = reinterpret_cast<char*>(&num);
-        memcpy(value_buf + pos, num_bytes, 8);
-        pos += 8;
-    }
-}
+// // assume compression ratio = 0.5
+// void setValueBuffer(char* value_buf, int size,
+// 		            std::mt19937_64 &e,
+// 		            std::uniform_int_distribution<unsigned long long>& dist) {
+//     memset(value_buf, 0, size);
+//     int pos = size / 2;
+//     while (pos < size) {
+//         uint64_t num = dist(e);
+//         char* num_bytes = reinterpret_cast<char*>(&num);
+//         memcpy(value_buf + pos, num_bytes, 8);
+//         pos += 8;
+//     }
+// }
 
-std::vector<rocksdb::Slice> generateValues(const std::vector<std::string>& keys, size_t val_sz) {
-    char value_buf[val_sz];
-    std::mt19937_64 e(2017);
-    std::uniform_int_distribution<unsigned long long> dist(0, ULLONG_MAX);
-    std::vector<rocksdb::Slice> vals;
+// std::vector<rocksdb::Slice> generateValues(const std::vector<std::string>& keys, size_t val_sz) {
+//     char value_buf[val_sz];
+//     std::mt19937_64 e(2017);
+//     std::uniform_int_distribution<unsigned long long> dist(0, ULLONG_MAX);
+//     std::vector<rocksdb::Slice> vals;
 
-    for (size_t i = 0; i < keys.size(); i++) {
-        setValueBuffer(value_buf, val_sz, e, dist);
-        vals.push_back(rocksdb::Slice(value_buf, val_sz));
-    }
+//     for (size_t i = 0; i < keys.size(); i++) {
+//         setValueBuffer(value_buf, val_sz, e, dist);
+//         vals.push_back(rocksdb::Slice(value_buf, val_sz));
+//     }
 
-    return vals;
-} 
+//     return vals;
+// } 
 
 void printCompactionAndDBStats(rocksdb::DB* db) {
     std::string stats;
