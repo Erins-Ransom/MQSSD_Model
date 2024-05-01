@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
-from baryrat import aaa
+# from baryrat import aaa
 import os
 
 
@@ -59,11 +59,29 @@ def print_data():
         
 
 
-def test_0(x, c0, c1):
-    return c0 / x + c1
+def fit_rat_n3d3(x, n0, n1, n2, d0, d1, d2):
+    return (n0 + n1*x + n2*(x**2)) / (d0 + d1*x + d2*(x**2))
 
-def test_1(x, c0, c1, c2):
-    return c0 / x + c1 * x + c2
+def fit_rat_n4d3(x, n0, n1, n2, n3, d0, d1, d2):
+    return (n0 + n1*x + n2*(x**2) + n3*(x**3)) / (d0 + d1*x + d2*(x**2))
+
+
+def cost(k, dev, op, bandwidth=0):
+    """
+    Returns a fitted setup or bandwidth cost for the respective device and operation.
+    k = <thread_count>
+    dev = "Crucial" / "Samsung" / "PNY"
+    op = "_read" / "_write
+    bandwidth = 0 => setup cost
+    bandwidth = 1 => bandwidth cost
+    """
+    
+    c = models[dev + op + "_fit"][bandwidth][0]
+
+    if op == "_write" and  bandwidth == 0 :
+        return (c[0] + c[1]*k + c[2]*(k**2) + c[3]*(k**3)) / (c[4] + c[5]*k + c[6]*(k**2))
+    else :
+        return (c[0] + c[1]*k + c[2]*(k**2)) / (c[3] + c[4]*k + c[5]*(k**2))
 
 
 def fit_data(): 
@@ -83,7 +101,12 @@ def fit_data():
                 m.append(models[dev + op][i][0])
                 b.append(models[dev + op][i][1])
 
-            models[dev + op + "_k"] = (aaa(thread_counts, np.array(m, dtype=np.float64)), aaa(thread_counts, np.array(b, dtype=np.float64)))
+            if op == "_write":
+                models[dev + op + "_fit"] = (curve_fit(fit_rat_n4d3, thread_counts, np.array(m, dtype=np.float64)), curve_fit(fit_rat_n3d3, thread_counts, np.array(b, dtype=np.float64)))
+            else :
+                models[dev + op + "_fit"] = (curve_fit(fit_rat_n3d3, thread_counts, np.array(m, dtype=np.float64)), curve_fit(fit_rat_n3d3, thread_counts, np.array(b, dtype=np.float64)))
+
+            # models[dev + op + "_k"] = (aaa(thread_counts, np.array(m, dtype=np.float64)), aaa(thread_counts, np.array(b, dtype=np.float64)))
 
         
 
@@ -92,7 +115,8 @@ def print_models():
         print(op)
         for dev in ["Crucial", "Samsung", "PNY"]:
             print(dev)
-            print(models[dev + op + "_k"])
+            # print(models[dev + op + "_k"])
+            print(models[dev + op + "_fit"])
             for i in range(0, I_max):
                 print(models[dev + op][i], "bandwith cost = {} usec, R^2 = {}".format(models[dev + op][i][1] / pages_per_thread, R_squares[dev + op][i]))
 
@@ -103,7 +127,7 @@ def plot_model_params():
     fig, plots = plt.subplots(4,3)
     col_index = {"Crucial" : 0, "Samsung" : 1, "PNY" : 2}
     row_index = {"_write_m" : 0, "_write_b" : 1, "_read_m" : 2, "_read_b" : 3}
-    cost = {"_write_m" : "s(k)", "_write_b" : "B(k)", "_read_m" : "t(k)", "_read_b" : "a(k)"}
+    cost_label = {"_write_m" : "s(k)", "_write_b" : "B(k)", "_read_m" : "t(k)", "_read_b" : "a(k)"}
     model_index = {"_m" : 0, "_b" : 1}
     for dev in ["Crucial", "Samsung", "PNY"]:
         col = col_index[dev]
@@ -114,13 +138,14 @@ def plot_model_params():
                 j = model_index[param]
 
                 vals = np.array([models[dev + op][i][j] for i in range(0, I_max)], dtype=np.float64)
-                fit = models[dev + op + "_k"][j](thread_counts)
+                # fit = models[dev + op + "_k"][j](thread_counts)
+                fit = cost(thread_counts, dev, op, bandwidth=j)
                 if param == "_b":
                     vals /= pages_per_thread
                     fit /= pages_per_thread
 
                 plots[row, col].plot(thread_counts, vals, linestyle=" ", marker="o", color=colors[j + 5 * (row // 2)])
-                plots[row, col].set(xlabel="Thread Count", ylabel=cost[op + param] + " (usec)")
+                plots[row, col].set(xlabel="Thread Count", ylabel=cost_label[op + param] + " (usec)")
                 plots[row, col].plot(thread_counts, fit, color=colors[j + 5 * (row // 2)])
             
     for plot in plots.flat:
@@ -163,8 +188,9 @@ def plot_per_thread_models():
 #             Micro-Benchmark Cost Functions                #
 #############################################################
 
-def cost_function(dev, op, rand_accs_per_thread, num_threads):
-    return (models[dev + op + "_k"][0](num_threads) * rand_accs_per_thread + models[dev + op + "_k"][1](num_threads)) * num_threads / 1000000
+def MQSSD_cost(dev, op, rand_accs_per_thread, num_threads):
+    # return (models[dev + op + "_k"][0](num_threads) * rand_accs_per_thread + models[dev + op + "_k"][1](num_threads)) * num_threads / 1000000
+    return (cost(num_threads, dev, op) * rand_accs_per_thread + cost(num_threads, dev, op, bandwidth=1)) * num_threads / 1000000
 
 
 def DAM_cost(dev, op, rand_accs_per_thread, num_threads):
@@ -193,14 +219,14 @@ def affine_cost(dev, op, rand_accs_per_thread, num_threads):
 #############################################################
 
 def plot_model_comparison(dev):
-    col_index = {DAM_cost : 0, PDAM_cost : 1, affine_cost : 2, cost_function : 3}
-    col_label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", cost_function : "MQSSD"}
+    col_index = {DAM_cost : 0, PDAM_cost : 1, affine_cost : 2, MQSSD_cost : 3}
+    col_label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", MQSSD_cost : "MQSSD"}
     row_index = {"_write" : 0, "_read" : 1}
     label_op = {"_write" : "Write", "_read" : "Read"}
     fig, plots = plt.subplots(2, 4)
     y_top = { "_write" : mean_data[dev + "_write"][-2].max() / 1000000 + 50, "_read" : mean_data[dev + "_read"][-2].max() / 1000000 + 10}
     y_bottom = { "_write" : -50, "_read" : -5}
-    for cost_model in [DAM_cost, PDAM_cost, affine_cost, cost_function]:
+    for cost_model in [DAM_cost, PDAM_cost, affine_cost, MQSSD_cost]:
         col = col_index[cost_model]
         plots[0, col].set_title(col_label[cost_model])
         for op in ["_write", "_read"]:
@@ -224,7 +250,7 @@ def plot_model_comparison(dev):
 
 
 def plot_single_model(dev, cost_model, op):
-    label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", cost_function : "MQSSD", None : None } 
+    label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", MQSSD_cost : "MQSSD", None : None } 
     y_top = { "_write" : mean_data[dev + "_write"].max() / 1000000 + 10, "_read" : mean_data[dev + "_read"].max() / 1000000 + 10}
     y_bottom = { "_write" : -100, "_read" : -5}
     for i in range(0, I_max):
@@ -257,7 +283,7 @@ def plot_by_random_accesses_per_thread():
             row = row_index[op]
             for i in range(0, I_max):
                 plots[row, col].plot(rand_accs, mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
-                plots[row, col].plot(rand_accs, cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
+                plots[row, col].plot(rand_accs, MQSSD_cost(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
                 plots[row, col].set(xlabel="Random Accesses Per-Thread", ylabel="Time to {} 10 GiB / Thread (sec)".format(op), xscale="log")
             plots[row, col].legend()
 
@@ -282,7 +308,7 @@ def plot_by_total_random_accesses():
             for i in range(0, I_max):
                 plots[row, col].plot(rand_accs * (2**i), mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
                 # plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
-                # plots[row, col].plot(rand_accs * (2**i), cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
+                # plots[row, col].plot(rand_accs * (2**i), MQSSD_cost(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
                 plots[row, col].set(xlabel="Total Random Accesses", ylabel="Time to {} 10 GiB / Thread (sec)".format(label_op[op]), xscale="log")
             
 
@@ -340,7 +366,7 @@ def lookup_cost_by_fannout(dev, N=100 * 1024 * 1024 * 1024):
 
 
 load_data()
-print_data()
+# print_data()
 fit_data()
 print_models()
 
@@ -353,6 +379,6 @@ print_models()
 # plot_writes_by_access_size()
 # plot_by_random_accesses_per_thread()
 # plot_by_total_random_accesses()
-# plot_model_comparison("Samsung")
-# plot_single_model("Samsung", affine_cost, "_read")
+plot_model_comparison("Samsung")
+# plot_single_model("Samsung", MQSSD_cost, "_write")
 # lookup_cost_by_fannout("Samsung")
