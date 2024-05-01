@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.optimize import curve_fit
 from baryrat import aaa
 import os
 
@@ -20,6 +21,7 @@ rand_accs = np.array([ pages_per_thread / size for size in acc_size ], dtype=np.
 colors = ["lightcoral", "chocolate", "tan", "gold", "yellowgreen", "skyblue", "mediumpurple", "orchid"]
 
 data = {}
+mean_data = {}
 models = {}
 R_squares = {}
 
@@ -34,9 +36,14 @@ def load_data():
         for op in ["_write", "_read"]:
             path = "../results/" + dev + "/" + op + "/"
             files = os.listdir(path)
-            data[dev + op] = np.zeros((I_max, len(rand_accs)), dtype=np.float64)
+            mean_data[dev + op] = np.zeros((I_max, len(rand_accs)), dtype=np.float64)
+            temp = []
             for file in files:
-                data[dev + op] += np.array([[ float(x) for x in line.split(",") ] for line in open(path + file).read().split()[0:I_max] ], dtype=np.float64) / len(files)
+                temp.append(np.array([[ float(x) for x in line.split(",") ] for line in open(path + file).read().split()[0:I_max] ], dtype=np.float64))
+                mean_data[dev + op] += temp[-1] / len(files)
+
+            print(dev + op)
+            data[dev + op] = np.array([[[ exp[i][j] for exp in temp] for j in range(len(rand_accs))] for i in range(I_max)], dtype=np.float64)
 
 
 def print_data():
@@ -45,22 +52,33 @@ def print_data():
         print(op)
         for dev in ["Crucial", "Samsung", "PNY"]:
             print(dev)
+            print(data[dev + op])
+            print(np.var(data[dev + op], axis=2))
             for i in range(0, I_max):
-                print("{} : {}".format(2**i, str(data[dev + op][i])))
+                print("{} : {}".format(2**i, str(mean_data[dev + op][i])))
         
 
 
-def fit_data():
-    m = []
-    for dev in ["Crucial", "Samsung", "PNY"]:
-        for op in ["_write", "_read"]:
-            m = []
-            b = []
-            models[dev + op] = []
-            for i in range(0, I_max):
-                A = np.vstack([rand_accs, np.ones(len(rand_accs), dtype=np.float64)]).T
-                fit = np.linalg.lstsq(A, data[dev + op][i] / (2**i), rcond=None)
-                R_squares[dev + op] = 
+def test_0(x, c0, c1):
+    return c0 / x + c1
+
+def test_1(x, c0, c1, c2):
+    return c0 / x + c1 * x + c2
+
+
+def fit_data(): 
+    m = [] 
+    for dev in ["Crucial", "Samsung", "PNY"]: 
+        for op in ["_write", "_read"]: 
+            m = [] 
+            b = [] 
+            models[dev + op] = [] 
+            R_squares[dev + op] = []
+            for i in range(0, I_max): 
+                y = mean_data[dev + op][i] / (2**i)
+                A = np.vstack([rand_accs, np.ones(len(rand_accs), dtype=np.float64)]).T 
+                fit = np.linalg.lstsq(A, y, rcond=None)
+                R_squares[dev + op].append(1 - fit[1] / sum((y - y.mean())**2))
                 models[dev + op].append(fit[0])
                 m.append(models[dev + op][i][0])
                 b.append(models[dev + op][i][1])
@@ -76,7 +94,7 @@ def print_models():
             print(dev)
             print(models[dev + op + "_k"])
             for i in range(0, I_max):
-                print(models[dev + op][i], "bandwith cost = {}".format(models[dev + op][i][1] / pages_per_thread))
+                print(models[dev + op][i], "bandwith cost = {} usec, R^2 = {}".format(models[dev + op][i][1] / pages_per_thread, R_squares[dev + op][i]))
 
 
 
@@ -125,7 +143,7 @@ def plot_per_thread_models():
         for op in ["_write", "_read"]:
             row = row_index[op]
             for i in range(0, I_max):
-                plots[row, col].plot(rand_accs, data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
+                plots[row, col].plot(rand_accs, mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
                 plots[row, col].plot(rand_accs, (rand_accs * models[dev + op][i][0] + models[dev + op][i][1]) * (2**i) / 1000000, color=colors[i], 
                                      label="k={}, {}={}, {}={} usec".format(2**i, setup_cost[op], round(models[dev + op][i][0], 1), band_cost[op], round(models[dev + op][i][1] / pages_per_thread, 2)))
                 plots[row, col].set(xlabel="Number of Random Accesses", ylabel="Total Latency (sec)", xscale="log")
@@ -180,7 +198,7 @@ def plot_model_comparison(dev):
     row_index = {"_write" : 0, "_read" : 1}
     label_op = {"_write" : "Write", "_read" : "Read"}
     fig, plots = plt.subplots(2, 4)
-    y_top = { "_write" : data[dev + "_write"][-2].max() / 1000000 + 50, "_read" : data[dev + "_read"][-2].max() / 1000000 + 10}
+    y_top = { "_write" : mean_data[dev + "_write"][-2].max() / 1000000 + 50, "_read" : mean_data[dev + "_read"][-2].max() / 1000000 + 10}
     y_bottom = { "_write" : -50, "_read" : -5}
     for cost_model in [DAM_cost, PDAM_cost, affine_cost, cost_function]:
         col = col_index[cost_model]
@@ -188,7 +206,7 @@ def plot_model_comparison(dev):
         for op in ["_write", "_read"]:
             row = row_index[op]
             for i in range(0, I_max):
-                plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
+                plots[row, col].plot(rand_accs * (2**i), mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
                 plots[row, col].plot(rand_accs * (2**i), cost_model(dev, op, rand_accs, 2**i), color=colors[i])
             plots[row, col].set(ylabel="Time to {} 10 GiB / Thread (sec)".format(label_op[op]), xlabel="Total Random Accesses", xscale="log")
             plots[row, col].set_ylim(top=y_top[op], bottom=y_bottom[op])
@@ -207,10 +225,10 @@ def plot_model_comparison(dev):
 
 def plot_single_model(dev, cost_model, op):
     label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", cost_function : "MQSSD", None : None } 
-    y_top = { "_write" : data[dev + "_write"].max() / 1000000 + 10, "_read" : data[dev + "_read"].max() / 1000000 + 10}
+    y_top = { "_write" : mean_data[dev + "_write"].max() / 1000000 + 10, "_read" : mean_data[dev + "_read"].max() / 1000000 + 10}
     y_bottom = { "_write" : -100, "_read" : -5}
     for i in range(0, I_max):
-        plt.plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
+        plt.plot(rand_accs * (2**i), mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
         if cost_model != None :
             plt.plot(rand_accs * (2**i), cost_model(dev, op, rand_accs, 2**i), color=colors[i])
     plt.ylabel("Time to {} 10 GiB / Thread (sec)".format(op))
@@ -238,7 +256,7 @@ def plot_by_random_accesses_per_thread():
         for op in ["_write", "_read"]:
             row = row_index[op]
             for i in range(0, I_max):
-                plots[row, col].plot(rand_accs, data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
+                plots[row, col].plot(rand_accs, mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
                 plots[row, col].plot(rand_accs, cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
                 plots[row, col].set(xlabel="Random Accesses Per-Thread", ylabel="Time to {} 10 GiB / Thread (sec)".format(op), xscale="log")
             plots[row, col].legend()
@@ -262,7 +280,7 @@ def plot_by_total_random_accesses():
         for op in ["_write", "_read"]:
             row = row_index[op]
             for i in range(0, I_max):
-                plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
+                plots[row, col].plot(rand_accs * (2**i), mean_data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i], label="k={}".format(2**i))
                 # plots[row, col].plot(rand_accs * (2**i), data[dev + op][i] / 1000000, linestyle=" ", marker="o", color=colors[i])
                 # plots[row, col].plot(rand_accs * (2**i), cost_function(dev, op, rand_accs, (2**i)), color=colors[i], label="{}(r, {})".format(cost_type[op], (2**i)))
                 plots[row, col].set(xlabel="Total Random Accesses", ylabel="Time to {} 10 GiB / Thread (sec)".format(label_op[op]), xscale="log")
@@ -322,7 +340,7 @@ def lookup_cost_by_fannout(dev, N=100 * 1024 * 1024 * 1024):
 
 
 load_data()
-# print_data()
+print_data()
 fit_data()
 print_models()
 
@@ -338,4 +356,3 @@ print_models()
 # plot_model_comparison("Samsung")
 # plot_single_model("Samsung", affine_cost, "_read")
 # lookup_cost_by_fannout("Samsung")
-
