@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     assert(std::filesystem::exists(DATA_DIR));
 
     std::stringstream ss;
-    ss << nkeys << ".txt";
+    ss << DATA_DIR << nkeys << ".txt";
     std::ofstream fout;
     fout.open(ss.str(), std::ios::out);
 

@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
     size_t val_sz = 512;
     size_t num_L1_files = 4;
 
-    options.num_levels = 5;
+    options.num_levels = 9;
 
     // options.level_compaction_dynamic_level_bytes = false;
 
