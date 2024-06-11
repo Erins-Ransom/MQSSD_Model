@@ -87,7 +87,7 @@ void flushMemTable(rocksdb::DB* db) {
     assert(s.ok());
 }
 
-void waitForBGCompactions(rocksdb::DB* db) {
+void waitForBGCompactions(rocksdb::DB* db, bool is_leveled_compaction) {
     bool double_checked = false;
     uint64_t prop;
     while (true) {
@@ -100,9 +100,11 @@ void waitForBGCompactions(rocksdb::DB* db) {
         if (prop > 0) continue;
         if (!(db->GetIntProperty("rocksdb.mem-table-flush-pending", &prop))) continue;
         if (prop == 1) continue;
-        if (!(db->GetIntProperty("rocksdb.compaction-pending", &prop))) continue;
-        if (prop == 1) continue;
-
+        if (is_leveled_compaction) {
+            if (!(db->GetIntProperty("rocksdb.compaction-pending", &prop))) continue;
+            if (prop == 1) continue;
+        }
+        
         if (double_checked) {
             break;
         } else {

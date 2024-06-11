@@ -11,6 +11,6 @@ std::string uint64ToString(const uint64_t word);
 void printCompactionAndDBStats(rocksdb::DB* db);
 void printLSM(rocksdb::DB* db);
 void flushMemTable(rocksdb::DB* db);
-void waitForBGCompactions(rocksdb::DB* db);
+void waitForBGCompactions(rocksdb::DB* db, bool is_leveled_compaction);
 void printStats(rocksdb::DB* db,
                 rocksdb::Options* options);

@@ -6,8 +6,12 @@ cd "$(dirname "$0")"    # Change to directory of this script
 
 IFS=""
 
-threads_arr=(1 2 4 6)
-fanout_arr=(2 4 8)
+flushthreads_arr=(1 2 3 4)
+compthreads_arr=(10)
+maxsubcomp_arr=(1 2 4 8)
+fanout_arr=(10)
+dynamic_level_arr=("0" "1")
+compstyle_arr=("Level" "Universal")
 
 ################################################################
 
@@ -21,6 +25,7 @@ DATA_DIR="$REPO_DIR/data"
 nkeys=100000000
 nqueries=1000000
 
+
 # Create directories if they don't exist
 mkdir -p "$RESULTS_DIR"
 
@@ -29,18 +34,23 @@ experiment() {
     touch "$res"
     echo -e "Number of Keys:\t$nkeys" >> "$res"
     echo -e "Number of Queries:\t$nqueries" >> "$res"
-    echo -e "Threads:\t$t" >> "$res"
-    echo -e "Fanout:\t\t$f" >> "$res"
+    echo -e "Compaction Style:\t$compstyle" >> "$res"
+    echo -e "Flush Threads:\t$ft" >> "$res"
+    echo -e "Compaction Threads:\t$ct" >> "$res"
+    echo -e "Max Subcompactions:\t$sc" >> "$res"
+    echo -e "Fanout:\t\t$fan" >> "$res"
+    echo -e "Dynamic Level:\t$dl" >> "$res"
     echo -e "\n" >> "$res"
 
-    if [ ! -e "$DATA_DIR/keys/$nkeys.txt" ]; then
-        echo "Generating $DATA_DIR/keys/$nkeys.txt"
-        $WORKL_BIN $DATA_DIR/keys/ "$nkeys"
+    if [ ! -e "$DATA_DIR/keys/1/$nkeys" ]; then
+        echo "Generating $DATA_DIR/keys/1/$nkeys"
+        $WORKL_BIN $DATA_DIR/keys/ "$nkeys" "1"
     fi
 
-    if [ ! -e "$DATA_DIR/queries/$nqueries.txt" ]; then
-        echo "Generating $DATA_DIR/queries/$nqueries.txt"
-        $WORKL_BIN $DATA_DIR/queries/ "$nqueries"
+    # TODO: Remove hardcoded 1
+    if [ ! -e "$DATA_DIR/queries/1/$nqueries" ]; then
+        echo "Generating $DATA_DIR/queries/1/$nqueries"
+        $WORKL_BIN $DATA_DIR/queries/ "$nqueries" "1"
     fi
 
     cd "$expdir"
@@ -48,7 +58,7 @@ experiment() {
     # starttime=$(expr `date +%s%N` / 1000)
     # echo -e "BLKTRACE START TIME: $starttime\n\n" >> "$res"
     # BTRACE_PID=$!
-    $EXP_BIN $DATA_DIR $nkeys $nqueries $t $f >> "$res"
+    $EXP_BIN $DATA_DIR $nkeys $nqueries $ft $ct $fan $sc $compstyle $dl >> "$res"
     # kill ${BTRACE_PID}
 
     # cp db/LOG "$resdir"
@@ -63,12 +73,45 @@ experiment() {
     # chown wintermute -R "$resdir"
 }
 
-for t in "${threads_arr[@]}"; do
-for f in "${fanout_arr[@]}"; do
+for compstyle in "${compstyle_arr[@]}"; do
 
-resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
-expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
-experiment
 
-done
+    if [[ "$compstyle" == "Level" ]]; then
+
+        for sc in "${maxsubcomp_arr[@]}}"; do
+        for ft in "${flushthreads_arr[@]}"; do
+        for ct in "${compthreads_arr[@]}"; do
+        for fan in "${fanout_arr[@]}"; do
+        for dl in "${dynamic_level_arr[@]}"; do
+
+        resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
+        expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
+        experiment
+
+        done
+        done
+        done
+        done
+        done
+
+    elif [[ "$compstyle" == "Universal" ]]; then
+        
+        for sc in "${maxsubcomp_arr[@]}"; do
+        for ft in "${flushthreads_arr[@]}"; do
+        for ct in "${compthreads_arr[@]}"; do
+        for fan in "${fanout_arr[@]}"; do
+
+
+        dl="0"
+        resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
+        expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
+        experiment
+
+        done
+        done
+        done
+        done
+
+    fi
+
 done

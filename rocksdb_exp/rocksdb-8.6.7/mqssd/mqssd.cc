@@ -9,6 +9,8 @@
 #include <fstream>
 #include <vector>
 #include <random>
+#include <thread>
+#include <cstring>
 
 #include "mqssd_util.h"
 
@@ -23,8 +25,12 @@
 static std::string DATA_DIR;
 static size_t nkeys;
 static size_t nqueries;
-static size_t nthreads;
+static size_t nflushthreads;
+static size_t ncompthreads;
 static size_t fanout;
+static size_t max_subcompactions;
+static bool leveled_compaction;
+static bool dynamic_level;
 
 
 void init(rocksdb::DB** db,
@@ -69,43 +75,33 @@ void init(rocksdb::DB** db,
     assert(status.ok());
 }
 
-void warmCache(rocksdb::DB* db,
-               const std::vector<std::string>& keys, 
-               size_t sample_gap) {
-    
+void warmCache(rocksdb::DB* db) {
+    std::ifstream queryFile;
+    queryFile.open(DATA_DIR + "/queries/1/" + std::to_string(nqueries) + "/0");
+
+    queryFile.seekg(0, queryFile.end);
+    size_t file_len = queryFile.tellg();
+    queryFile.seekg(0, queryFile.beg);
+    size_t sample_gap = file_len / 1000000;
     sample_gap = std::max(sample_gap, 1UL);
 
+    uint64_t q;
+    std::string val;
+    uint64_t eight_byte_value;
     rocksdb::ReadOptions read_options = rocksdb::ReadOptions();
     rocksdb::Status s;
-    std::string value_found;
-    uint64_t eight_byte_value;
 
     // Get inserted keys at regular intervals
-    for (size_t i = 0; i < keys.size(); i += sample_gap) {
-        s = db->Get(read_options, rocksdb::Slice(keys[i]), &value_found);
+    while (queryFile >> q) {
+        s = db->Get(read_options, rocksdb::Slice(uint64ToString(q)), &val);
         if (s.ok()) {
-            assert(value_found.size() >= sizeof(eight_byte_value));
-            eight_byte_value = *reinterpret_cast<const uint64_t*>(value_found.data());
+            assert(val.size() >= sizeof(q));
+            eight_byte_value = *reinterpret_cast<const uint64_t*>(val.data());
             (void)eight_byte_value;
         }
+        queryFile.ignore(8 * sample_gap);
     }
 }
-
-// std::vector<std::string> generateKeys(size_t nkeys) {
-//     std::vector<std::string> keys;
-//     keys.reserve(nkeys);
-
-//     std::random_device rd;  // Will be used to obtain a seed for the random number engine
-//     std::mt19937_64 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
-//     std::uniform_int_distribution<uint64_t> uni_dist(0, std::numeric_limits<uint64_t>::max());
-
-//     while (keys.size() < nkeys) {
-//         uint64_t number = uni_dist(gen);
-//         keys.push_back(uint64ToString(number));
-//     }
-
-//     return keys;
-// }
 
 // assume compression ratio = 0.5
 void setValueBuffer(char* value_buf, int size,
@@ -123,7 +119,7 @@ void setValueBuffer(char* value_buf, int size,
 
 void runWriteWorkload(rocksdb::DB* db, size_t val_sz) {
     std::ifstream keyFile;
-    keyFile.open(DATA_DIR + "/keys/" + std::to_string(nkeys) + ".txt");
+    keyFile.open(DATA_DIR + "/keys/1/" + std::to_string(nkeys) + "/0");
 
     uint64_t key;
     rocksdb::WriteOptions write_options = rocksdb::WriteOptions();
@@ -142,39 +138,75 @@ void runWriteWorkload(rocksdb::DB* db, size_t val_sz) {
     }
 
     flushMemTable(db);
-    waitForBGCompactions(db);
+    waitForBGCompactions(db, leveled_compaction);
     printCompactionAndDBStats(db);
 }
 
+void runReadWorkload(rocksdb::DB* db) {
+    std::ifstream queryFile;
+    queryFile.open(DATA_DIR + "/queries/1/" + std::to_string(nqueries) + "/0");
 
-void runReadWorkload(rocksdb::DB* db, const std::vector<std::string>& keys) {
+    uint64_t q;
+    std::string val;
+    uint64_t eight_byte_value;
     rocksdb::ReadOptions read_options = rocksdb::ReadOptions();
     rocksdb::Status s;
-    std::string value_found;
-    uint64_t eight_byte_value;
 
-    for (size_t i = 0; i < keys.size(); i++) {
-        s = db->Get(read_options, rocksdb::Slice(keys[i]), &value_found);
+    // Get inserted keys at regular intervals
+    while (queryFile >> q) {
+        s = db->Get(read_options, rocksdb::Slice(uint64ToString(q)), &val);
         if (s.ok()) {
-            assert(value_found.size() >= sizeof(eight_byte_value));
-            eight_byte_value = *reinterpret_cast<const uint64_t*>(value_found.data());
+            assert(val.size() >= sizeof(q));
+            eight_byte_value = *reinterpret_cast<const uint64_t*>(val.data());
             (void)eight_byte_value;
         }
     }
 }
+
+// void runReadWorkloadMultiThreaded(rocksdb::DB* db) {
+//     std::vector<std::thread> threads;
+
+//     rocksdb::ReadOptions read_options = rocksdb::ReadOptions();
+//     rocksdb::Status s;
+//     std::string value_found;
+//     uint64_t eight_byte_value;
+
+//     for (size_t i = 0; i < keys.size(); i++) {
+//         s = db->Get(read_options, rocksdb::Slice(keys[i]), &value_found);
+//         if (s.ok()) {
+//             assert(value_found.size() >= sizeof(eight_byte_value));
+//             eight_byte_value = *reinterpret_cast<const uint64_t*>(value_found.data());
+//             (void)eight_byte_value;
+//         }
+//     }
+// }
 
 
 int main(int argc, char** argv) {
 
     INIT_EXP_TIMER
 
-    assert (argc == 6);
+    assert(argc == 8);
 
     DATA_DIR = argv[1];
     nkeys = strtoull(argv[2], nullptr, 10);
     nqueries = strtoull(argv[3], nullptr, 10);
-    nthreads = strtoull(argv[4], nullptr, 10);
-    fanout = strtoull(argv[5], nullptr, 10);
+    nflushthreads = strtoull(argv[4], nullptr, 10);
+    ncompthreads = strtoull(argv[5], nullptr, 10);
+    fanout = strtoull(argv[6], nullptr, 10);
+    max_subcompactions = strtoull(argv[7], nullptr, 10);
+    leveled_compaction = std::strncmp(argv[8], "Level", 5) == 0;
+    dynamic_level = std::strncmp(argv[9], "1", 1) == 0;
+
+    // std::cout << "Data Dir:\t" << DATA_DIR << std::endl;
+    // std::cout << "Number of Keys:\t" << nkeys << std::endl;
+    // std::cout << "Number of Queries:\t" << nqueries << std::endl;
+    // std::cout << "Number of Flush Threads:\t" << nflushthreads << std::endl;
+    // std::cout << "Number of Compaction Threads:\t" << ncompthreads << std::endl;
+    // std::cout << "Fanout:\t" << fanout << std::endl;
+    // std::cout << "Max Subcompactions:\t" << max_subcompactions << std::endl;
+    // std::cout << "Leveled Compaction?:\t" << leveled_compaction << std::endl;
+    // std::cout << "Dynamic Level?:\t" << dynamic_level << std::endl;
 
     rocksdb::DB* db;
     rocksdb::Options options;
@@ -184,12 +216,15 @@ int main(int argc, char** argv) {
     size_t val_sz = 512;
     size_t num_L1_files = 4;
 
+
+    if (leveled_compaction) {
+        options.compaction_style = rocksdb::kCompactionStyleLevel;                      // Default Compaction is Tiered+Leveled, only L0 is tiered
+        options.level_compaction_dynamic_level_bytes = dynamic_level;
+    } else {
+        options.compaction_style = rocksdb::kCompactionStyleUniversal;                  // Universal == Tiered
+    }
+
     options.num_levels = 9;
-
-    // options.level_compaction_dynamic_level_bytes = false;
-
-    options.compaction_style = rocksdb::kCompactionStyleLevel;                          // Default Compaction is Tiered+Leveled.
-
     options.write_buffer_size = 32 * 1048576;                                           // Memtable Size (default: 64 MB)
     options.target_file_size_base = 32 * 1048576;                                       // Target SST File Size (default: 64 MB)
     options.max_bytes_for_level_base = num_L1_files * options.target_file_size_base;    // Default 4 L1 files
@@ -198,7 +233,18 @@ int main(int argc, char** argv) {
     options.max_bytes_for_level_multiplier = fanout;                                    // Default fanout is 10
 
     // Number of background threads for flushes and compactions (default: 1)   
-    options.IncreaseParallelism(nthreads);
+    // options.IncreaseParallelism(nthreads);
+    /* Default behavior for IncreaseParalelism(total_threads)
+         max_background_jobs = total_threads;
+         env->SetBackgroundThreads(total_threads, Env::LOW);
+         env->SetBackgroundThreads(1, Env::HIGH);
+    ***********************************************************/
+    options.max_background_jobs = nflushthreads + ncompthreads;
+    options.env->SetBackgroundThreads(nflushthreads, rocksdb::Env::HIGH);
+    options.max_background_flushes = nflushthreads; // may not do anything, lol
+    options.env->SetBackgroundThreads(ncompthreads, rocksdb::Env::LOW);
+    options.max_background_compactions = ncompthreads; // may not do anything, lol
+    options.max_subcompactions = max_subcompactions;
 
     init(&db, &options, &table_options);
 
@@ -214,13 +260,13 @@ int main(int argc, char** argv) {
     rocksdb::get_perf_context()->EnablePerLevelPerfContext();
     rocksdb::get_iostats_context()->Reset();
 
-    // START_EXP_TIMER
-    // warmCache(db, keys, keys.size() / 1000000);
-    // STOP_EXP_TIMER("Warm Cache")
+    START_EXP_TIMER
+    warmCache(db);
+    STOP_EXP_TIMER("Warm Cache")
     
-    // START_EXP_TIMER
-    // runReadWorkload(db);
-    // STOP_EXP_TIMER("Read Workload")
+    START_EXP_TIMER
+    runReadWorkload(db);
+    STOP_EXP_TIMER("Read Workload")
 
     // Close database
     rocksdb::Status s = db->Close();
