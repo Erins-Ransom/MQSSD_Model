@@ -4,3 +4,4 @@ rocksdb_exp/data
 workload_gen
 micro_benchmarks/micro_bench
 micro_benchmarks/results
+filter_exps/data

@@ -25,10 +25,11 @@
 static std::string DATA_DIR;
 static size_t nkeys;
 static size_t nqueries;
+static size_t filesize = 32;             // in MB
 static size_t nflushthreads;
 static size_t ncompthreads;
 static size_t fanout;
-static size_t max_subcompactions;
+static size_t nrunsuniversal;
 static bool leveled_compaction;
 static bool dynamic_level;
 
@@ -40,8 +41,10 @@ void init(rocksdb::DB** db,
     options->create_if_missing = true;
     options->statistics = rocksdb::CreateDBStatistics();
 
-    // Force L0 to be empty for consistent LSM tree shape
-    options->level0_file_num_compaction_trigger = 1;
+    // Force L0 to be empty for consistent LSM tree shape -- Not sure if we want this anymore (especially for read workloads)
+    // I believe similar L0 and L1 sizes are recommended for Leveling, but behaves differently for Universal
+    // Moving this outside the  init function
+    // options->level0_file_num_compaction_trigger = 1;
 
     // 1 GB Block Cache
     table_options->block_cache = rocksdb::NewLRUCache(1024 * 1024 * 1024);
@@ -186,7 +189,7 @@ int main(int argc, char** argv) {
 
     INIT_EXP_TIMER
 
-    assert(argc == 8);
+    assert(argc == 11);
 
     DATA_DIR = argv[1];
     nkeys = strtoull(argv[2], nullptr, 10);
@@ -194,9 +197,11 @@ int main(int argc, char** argv) {
     nflushthreads = strtoull(argv[4], nullptr, 10);
     ncompthreads = strtoull(argv[5], nullptr, 10);
     fanout = strtoull(argv[6], nullptr, 10);
-    max_subcompactions = strtoull(argv[7], nullptr, 10);
-    leveled_compaction = std::strncmp(argv[8], "Level", 5) == 0;
-    dynamic_level = std::strncmp(argv[9], "1", 1) == 0;
+    leveled_compaction = std::strncmp(argv[7], "Level", 5) == 0;
+    dynamic_level = std::strncmp(argv[8], "1", 1) == 0;
+    nrunsuniversal = strtoull(argv[9], nullptr, 10);
+    filesize = strtoull(argv[10], nullptr, 10);
+
 
     // std::cout << "Data Dir:\t" << DATA_DIR << std::endl;
     // std::cout << "Number of Keys:\t" << nkeys << std::endl;
@@ -217,34 +222,76 @@ int main(int argc, char** argv) {
     size_t num_L1_files = 4;
 
 
-    if (leveled_compaction) {
-        options.compaction_style = rocksdb::kCompactionStyleLevel;                      // Default Compaction is Tiered+Leveled, only L0 is tiered
-        options.level_compaction_dynamic_level_bytes = dynamic_level;
-    } else {
-        options.compaction_style = rocksdb::kCompactionStyleUniversal;                  // Universal == Tiered
-    }
-
-    options.num_levels = 9;
-    options.write_buffer_size = 32 * 1048576;                                           // Memtable Size (default: 64 MB)
-    options.target_file_size_base = 32 * 1048576;                                       // Target SST File Size (default: 64 MB)
-    options.max_bytes_for_level_base = num_L1_files * options.target_file_size_base;    // Default 4 L1 files
-
-    options.target_file_size_multiplier = 1;                                            // Same SST file size for all levels by default
-    options.max_bytes_for_level_multiplier = fanout;                                    // Default fanout is 10
-
+    // options.num_levels = 9;
+    options.write_buffer_size = filesize * 1048576;                                           // Memtable Size (default: 64 MB)
+    options.target_file_size_base = filesize * 1048576;                                       // Target SST File Size (default: 64 MB)
     // Number of background threads for flushes and compactions (default: 1)   
     // options.IncreaseParallelism(nthreads);
-    /* Default behavior for IncreaseParalelism(total_threads)
+    /* Default behavior for IncreaseParalelism(total_threads):
          max_background_jobs = total_threads;
          env->SetBackgroundThreads(total_threads, Env::LOW);
-         env->SetBackgroundThreads(1, Env::HIGH);
-    ***********************************************************/
+         env->SetBackgroundThreads(1, Env::HIGH);               */
     options.max_background_jobs = nflushthreads + ncompthreads;
     options.env->SetBackgroundThreads(nflushthreads, rocksdb::Env::HIGH);
-    options.max_background_flushes = nflushthreads; // may not do anything, lol
+    options.max_background_flushes = nflushthreads;                                     // may not do anything, lol
     options.env->SetBackgroundThreads(ncompthreads, rocksdb::Env::LOW);
-    options.max_background_compactions = ncompthreads; // may not do anything, lol
-    options.max_subcompactions = max_subcompactions;
+    options.max_background_compactions = ncompthreads;                                  // may not do anything, lol
+    options.max_subcompactions = ncompthreads;                                          // can override max_background_jobs
+
+    /************************************************************************
+     *   options.level0_file_num_compaction_trigger                         *
+     ************************************************************************
+     *   LEVEL:      Number of L0 files that triggers compaction into L1    *
+     *   UNIVERSAL:  Number of TOTAL sorted runs to trigger any compacation *
+     ************************************************************************/
+
+    if (leveled_compaction) {
+        options.num_levels = 9;
+        options.compaction_style = rocksdb::kCompactionStyleLevel;                          // Default Compaction is Tiered+Leveled, only L0 is tiered
+        options.level_compaction_dynamic_level_bytes = dynamic_level;
+        options.target_file_size_multiplier = 1;                                            // Same SST file size for all levels by default, only implemented for level...?
+        options.max_bytes_for_level_base = num_L1_files * options.target_file_size_base;    // Default 4 L1 file
+        options.max_bytes_for_level_multiplier = fanout;
+        options.level0_file_num_compaction_trigger = num_L1_files;                          // Suggestion is same size for L0 and L1
+    } else {
+
+       /*************************************************************************************
+        *   UNIVERSAL COMPACTION                                                            *
+        *************************************************************************************
+        *   PRECONDIDTION:  total sorted runs >= level0_file_num_compaction_trigger         *
+        *                                                                                   *
+        *              IF:  there are files older than periodic_compaction_seconds,         *
+        *                   then compact oldest possible runs into last run                 *
+        *                                                                                   *
+        *          ELSEIF:  sum(size(Li), i:0-(N-1)) / size(LN) >=                          *
+        *                   compaction_options_universal.max_size_amplification_percent,    *
+        *                   then perform major compaction (compact all runs to single one)  *
+        *                                                                                   * 
+        *          ELSEIF:  there is an x for which sum(size(Li), i:0-(x-1)) / size(Lx) >=  *
+        *                   (100 + compaction_options_universal.size_ratio) / 100,  compact *
+        *                   runs 0-x for the largest such x                                 *
+        *                                                                                   * 
+        *            ELSE:  try to schedule minor compaction without respecting ratio... ?  *
+        *                                                                                   * 
+        *            ALSO:  compaction_options_universal.min_merge_width &                  *
+        *                   compaction_options_universal.max_merge_width determine min and  *
+        *                   max number of input runs for compaction respectively            *
+        *                                                                                   *
+        *            NOTE:  The settings below should theoretically get behavior similar to *
+        *                   standard tiering where fannout == nrunsuniversal.               *
+        *************************************************************************************/
+
+        options.num_levels = nrunsuniversal * 5;                                        // each run is stored as a "level" except those in L0
+        options.compaction_style = rocksdb::kCompactionStyleUniversal;                  // Universal ~= Tiered
+        options.periodic_compaction_seconds = 0;                                        // 0: disabled, default: 30 days
+        options.level0_file_num_compaction_trigger = nrunsuniversal;         
+        options.compaction_options_universal.max_size_amplification_percent = 100 * (nrunsuniversal - 1);      // default: 200
+        options.compaction_options_universal.size_ratio = 1;                            // default: 1
+        options.compaction_options_universal.min_merge_width = nrunsuniversal;          // default: 2
+        options.compaction_options_universal.max_merge_width = nrunsuniversal;          // default: UINT_MAX
+        
+    }
+
 
     init(&db, &options, &table_options);
 
@@ -254,20 +301,31 @@ int main(int argc, char** argv) {
 
     printStats(db, &options);
 
-    // Reset performance stats
-    rocksdb::get_perf_context()->Reset();
-    rocksdb::get_perf_context()->ClearPerLevelPerfContext();
-    rocksdb::get_perf_context()->EnablePerLevelPerfContext();
-    rocksdb::get_iostats_context()->Reset();
+    // Reset performance stats -- Move this after cache warming?
+    // rocksdb::get_perf_context()->Reset();
+    // rocksdb::get_perf_context()->ClearPerLevelPerfContext();
+    // rocksdb::get_perf_context()->EnablePerLevelPerfContext();
+    // rocksdb::get_iostats_context()->Reset();
 
-    START_EXP_TIMER
-    warmCache(db);
-    STOP_EXP_TIMER("Warm Cache")
-    
-    START_EXP_TIMER
-    runReadWorkload(db);
-    STOP_EXP_TIMER("Read Workload")
 
+    // only do read workload for one thread count
+    if (nflushthreads == 16)
+    {
+        START_EXP_TIMER
+        warmCache(db);
+        STOP_EXP_TIMER("Warm Cache")
+
+        rocksdb::get_perf_context()->Reset();
+        rocksdb::get_perf_context()->ClearPerLevelPerfContext();
+        rocksdb::get_perf_context()->EnablePerLevelPerfContext();
+        rocksdb::get_iostats_context()->Reset();
+
+        START_EXP_TIMER
+        runReadWorkload(db);
+        STOP_EXP_TIMER("Read Workload")
+
+        printStats(db, &options);
+    }
     // Close database
     rocksdb::Status s = db->Close();
     assert(s.ok());
