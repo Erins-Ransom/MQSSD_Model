@@ -4,13 +4,17 @@ from scipy.optimize import curve_fit
 # from baryrat import aaa
 import os
 
-
+val_size = 512
+num_keys = 10000000
+num_queries = 1000000
+T = 32 * 1024 * 1024
+C = 4
 B = 512
+B_ = 4 * 1024
 P = 16
 I = int(np.log2(P))
 I_max = 8
 thread_counts = np.array([2**i for i in range(0, I_max)], dtype=np.float64)
-# P = { "Crucial" : 8, "Samsung" : 8, "PNY" : 4 }
 
 pages_per_thread = 10 * 1024 * 1024 * 1024 / B
 acc_size = [ 2 ** i for i in range(9, 21)]
@@ -28,13 +32,13 @@ R_squares = {}
 
 
 #############################################################
-#                   Data Processing                         #
+#          S1 - Micro Benchmark Data Processing             #
 #############################################################
 
-def load_data():
+def load_data(results_path="../micro_benchmarks/results/"):
     for dev in ["Crucial", "Samsung", "PNY"]:
         for op in ["_write", "_read"]:
-            path = "../results/" + dev + "/" + op + "/"
+            path = results_path + dev + "/" + op + "/"
             files = os.listdir(path)
             mean_data[dev + op] = np.zeros((I_max, len(rand_accs)), dtype=np.float64)
             temp = []
@@ -42,7 +46,7 @@ def load_data():
                 temp.append(np.array([[ float(x) for x in line.split(",") ] for line in open(path + file).read().split()[0:I_max] ], dtype=np.float64))
                 mean_data[dev + op] += temp[-1] / len(files)
 
-            print(dev + op)
+            # print(dev + op)
             data[dev + op] = np.array([[[ exp[i][j] for exp in temp] for j in range(len(rand_accs))] for i in range(I_max)], dtype=np.float64)
 
 
@@ -58,9 +62,9 @@ def print_data():
                 print("{} : {}".format(2**i, str(mean_data[dev + op][i])))
         
 
-
 def fit_rat_n3d3(x, n0, n1, n2, d0, d1, d2):
     return (n0 + n1*x + n2*(x**2)) / (d0 + d1*x + d2*(x**2))
+
 
 def fit_rat_n4d3(x, n0, n1, n2, n3, d0, d1, d2):
     return (n0 + n1*x + n2*(x**2) + n3*(x**3)) / (d0 + d1*x + d2*(x**2))
@@ -107,7 +111,6 @@ def fit_data():
                 models[dev + op + "_fit"] = (curve_fit(fit_rat_n3d3, thread_counts, np.array(m, dtype=np.float64)), curve_fit(fit_rat_n3d3, thread_counts, np.array(b, dtype=np.float64)))
 
             # models[dev + op + "_k"] = (aaa(thread_counts, np.array(m, dtype=np.float64)), aaa(thread_counts, np.array(b, dtype=np.float64)))
-
         
 
 def print_models():
@@ -119,8 +122,6 @@ def print_models():
             print(models[dev + op + "_fit"])
             for i in range(0, I_max):
                 print(models[dev + op][i], "bandwith cost = {} usec, R^2 = {}".format(models[dev + op][i][1] / pages_per_thread, R_squares[dev + op][i]))
-
-
 
 
 def plot_model_params():
@@ -180,12 +181,12 @@ def plot_per_thread_models():
     fig.suptitle('Latency by Number of Random Accesses')
     plt.show()
 
-#############################################################
+####################################################### END-1
 
 
 
 #############################################################
-#             Micro-Benchmark Cost Functions                #
+#         S2 -  Micro-Benchmark Cost Functions              #
 #############################################################
 
 def MQSSD_cost(dev, op, rand_accs_per_thread, num_threads):
@@ -209,13 +210,12 @@ def PDAM_cost(dev, op, rand_accs_per_thread, num_threads):
 def affine_cost(dev, op, rand_accs_per_thread, num_threads):
     return (models[dev + op][0][0] * rand_accs_per_thread + models[dev + op][0][1]) * num_threads / 1000000
 
+####################################################### END-2
+
+
 
 #############################################################
-
-
-
-#############################################################
-#                   Model Comparisons                       #
+#                S3 - Model Comparisons                     #
 #############################################################
 
 def plot_model_comparison(dev):
@@ -247,8 +247,6 @@ def plot_model_comparison(dev):
     plt.show()
 
 
-
-
 def plot_single_model(dev, cost_model, op):
     label = {DAM_cost : "DAM", PDAM_cost : "PDAM", affine_cost : "Affine", MQSSD_cost : "MQSSD", None : None } 
     y_top = { "_write" : mean_data[dev + "_write"].max() / 1000000 + 10, "_read" : mean_data[dev + "_read"].max() / 1000000 + 10}
@@ -267,8 +265,6 @@ def plot_single_model(dev, cost_model, op):
     else :
         plt.title("{} Model vs. Benchmark".format(label[cost_model]))
     plt.show()
-
-
 
 
 def plot_by_random_accesses_per_thread():
@@ -320,44 +316,175 @@ def plot_by_total_random_accesses():
     fig.tight_layout()
     plt.show()
 
-#############################################################
+####################################################### END-3
 
 
 
 
 
 #############################################################
-#                   LSM-Tree Figures                        #
+#             S4 - LSM-Tree Data & Figures                  #
 #############################################################
-    
 
+trial_counts = {}
+rocksdb_data = {}
 
-def lookup_cost_by_fannout(dev, N=100 * 1024 * 1024 * 1024):
-    
-    F_vals = np.array([2,4,6,8,10,12,14,16,18,20], dtype=np.float64) 
+file_size = np.array([32, 64, 128], dtype=np.float64)
+threads = np.array([2, 4, 8, 16, 32], dtype=np.float64)
+fanout = np.array([2, 4, 8, 16], dtype=np.float64)
+
+def gen_rocksdb_csv(out="rocksdb_results.csv", results_path="../rocksdb_exp/results/"):
+    vals = {"Batch Code:" : "", "Number of Keys:" : "", "Number of Queries:" : "", "Target File Size:" : "", "Compaction Style:" : "", "Compaction Threads:" : "", "Fanout:" : "", "Dynamic Level:" : "", "RUNTIME of Write Workload:" : "", "RUNTIME of Read Workload:" : ""}
+    header = ["Batch Code:", "Compaction Style:", "Dynamic Level:", "Number of Keys:", "Number of Queries:", "Target File Size:", "Compaction Threads:", "Fanout:"]
+    times = ["RUNTIME of Write Workload:", "RUNTIME of Read Workload:"]
+    csv = open(out, "w")
+    for val in header:
+        csv.write(val[0:-1] + ",")
+    csv.write(times[0][0:-1] + ",")
+    csv.write(times[1][0:-1] + "\n")
+
+    for exp in os.listdir(results_path):
+        input = open(results_path + "/" + exp + "/exp.txt", "r")
+        lines = input.readlines()
+        for line in lines[0:10]:
+            if line == "\n":
+                break
+            for val in header:
+                if line.startswith(val):
+                    if val == "Compaction Threads:":
+                        vals[val] = int(line[len(val):].split()[0]) + 1
+                    else :
+                        vals[val] = line[len(val):].split()[0]
+
+        for line in lines[10:]:
+            if line.startswith("RUNTIME"):
+                for val in times:
+                    if line.startswith(val):
+                        vals[val] = line[len(val):].split()[0]
         
-    def cost(F, tiered):
-        if not tiered :
-            k = np.log(N/512.0) / np.log(F)
-    
-        else:
-            k = F * np.log(N/512.0) / np.log(F)
+        for val in header:
+            csv.write("{},".format(vals[val]))
+        csv.write("{},".format(vals[times[0]]))
+        csv.write("{}\n".format(vals[times[1]]))
 
-        return  k * (models[dev + "_read_k"][0](k) + models[dev + "_read_k"][1](k) / pages_per_thread) / 1000
-        
-    plt.plot(F_vals, cost(F_vals, False), label="Leveled")
-    plt.plot(F_vals, cost(F_vals, True), label="Tiered")
+        input.close()
+        for val in vals.keys():
+            vals[val] = ""
     
-    plt.ylabel("Predicted Lookup Latency (ms)")
+    csv.close()
+                    
+
+def load_rocksdb_data(batch_codes=["0000"], print_=True):
+
+    for layout in ["Level", "Universal"] :
+        for op in ["_read", "_write"] :
+            trial_counts[layout + op] = np.zeros((len(file_size), len(threads), len(fanout)), dtype=np.int64)
+            rocksdb_data[layout + op] = np.zeros((len(file_size), len(threads), len(fanout)), dtype=np.float64)
+
+    for line in open("rocksdb_results.csv", "r").readlines() :
+        val = line.split(",")
+        if not val[0] in batch_codes :
+            continue
+        elif not (int(val[3]) == num_keys and int(val[4]) == num_queries) :
+            continue
+        
+        skip = False
+        for x in val[5:9] :
+            if x == "" :
+                print("Bad Line: " + line)
+
+                skip = True
+                break
+        
+        if skip :
+            continue
+                
+        
+        i = int(np.log2(int(val[5])/32))
+        j = int(np.log2(int(val[6]))) - 1
+        k = int(np.log2(int(val[7]))) - 1
+        trial_counts[val[1] + "_write"][i][j][k] += 1   
+        count = trial_counts[val[1] + "_write"][i][j][k]
+        if j == 0 :
+            trial_counts[val[1] + "_read"][i][j][k] += 1
+
+        if count > 1 :
+            rocksdb_data[val[1] + "_write"][i][j][k] = rocksdb_data[val[1] + "_write"][i][j][k] * (count - 1) / count + float(val[8]) / count
+            if j == 0 :
+                rocksdb_data[val[1] + "_read"][i][j][k] = rocksdb_data[val[1] + "_read"][i][j][k] * (count - 1) / count + float(val[9]) / count
+        else :
+            rocksdb_data[val[1] + "_write"][i][j][k] = float(val[8])
+            if j == 0 :
+                rocksdb_data[val[1] + "_read"][i][j][k] = float(val[9])
+
+    if print_:
+        print_rocksdb_data()
+
+
+def print_rocksdb_data():
+    print("Latency (msec) for T,k,F: rocksdb_data[log2(T/32)][log2(k)][log2(F)-1]")
+    for layout in ["Level", "Universal"]: 
+        for op in ["_write", "_read"]: 
+            print(layout + op)
+            print("times:")
+            print(rocksdb_data[layout + op])
+            print("trial counts:")
+            print(trial_counts[layout + op])
+
+
+def comp_cost_by_fanout(dev, layout):
+    N = num_keys * val_size
+    exp_fanouts = np.array([2, 4, 8, 16], dtype=np.float64)
+    fanouts = np.array([x/4 for x in range(8, 64)], dtype=np.float64)
+    threads = np.array([2,4,8,16,32], dtype=np.float64)
+
+
+    def comp_cost(F, k, layout, dev):
+        if layout == "Level":
+            return N * (np.log(N/(C*T)) / np.log(F)) * F * ((cost(k, dev, "_write", 0) + cost(k, dev, "_read", 0)) / T + (cost(k, dev, "_write", 1) + cost(k, dev, "_read", 1))/B) / 1000000
+        elif layout == "Universal":
+            return N * (np.log(N/(C*T)) / np.log(F)) * ((cost(k, dev, "_write", 0) + cost(k, dev, "_read", 0)) / T + (cost(k, dev, "_write", 1) + cost(k, dev, "_read", 1))/B) / 1000000
+
+    for i in range(0, len(threads)): 
+        # print(comp_cost(fanouts, threads[i], layout, dev))
+        plt.plot(fanout, rocksdb_data[layout + "_write"][int(np.log2(T/(32*1024*1024)))][i] / 1000000, linestyle=" ", marker="o" , color=colors[i]) #, label=layout + ": k = {}".format(threads[i]+1))
+        plt.plot(fanouts, comp_cost(fanouts, threads[i] + 1, layout, dev), label=layout + ": k = {}".format(threads[i]+1), color=colors[i])
+
+    
+    plt.ylabel("Predicted Latency (sec)")
     plt.xlabel("Growth Factor (F)")
     plt.legend()
     plt.show()
 
 
+def lookup_cost_by_fanout(dev, layout, db_file_count=900, T=32*1024*1024, cached=True):
+    N = T * db_file_count
+    fanouts = np.array([x/4 for x in range(8, 64)], dtype=np.float64)
+    threads = np.array([1,2,4,8,16,32], dtype=np.float64)
 
+    def read_cost(F, k, layout, dev, cached):
+        if cached:
+            if layout == "Level":
+                return (np.log(N/(C*T)) / np.log(F)) * (cost(k, dev, "_read", 0) + B_ * cost(k, dev, "_read", 1)/B) / 1000000
+            elif layout == "Universal":
+                return F * (np.log(N/(C*T)) / np.log(F)) * (cost(k, dev, "_read", 0) + B_ * cost(k, dev, "_read", 1)/B) / 1000000
+        else:
+            if layout == "Level":
+                return (np.log(N/(C*T)) / np.log(F)) * (np.log(N/(C*T)) / np.log(F) + 1) * np.log2(C*F) * (cost(k, dev, "_read", 0) + B_ * cost(k, dev, "_read", 1)/B) / 2000000
+            elif layout == "Universal":
+                return 0
 
+    for i in range(0, 6): 
+        # print(read_cost(fanouts, threads[i], layout, dev, cached))
+        plt.plot(fanouts, read_cost(fanouts, threads[i], layout, dev, cached), label=layout + ": k = {}".format(threads[i]), color=colors[i])
 
-#############################################################
+    
+    plt.ylabel("Predicted Latency (sec)")
+    plt.xlabel("Growth Factor (F)")
+    plt.legend()
+    plt.show()
+
+####################################################### END-4
 
 
 
@@ -368,17 +495,16 @@ def lookup_cost_by_fannout(dev, N=100 * 1024 * 1024 * 1024):
 load_data()
 # print_data()
 fit_data()
-print_models()
-
-
-
-
-
+# print_models()
 # plot_model_params()
 # plot_per_thread_models()
 # plot_writes_by_access_size()
 # plot_by_random_accesses_per_thread()
 # plot_by_total_random_accesses()
-plot_model_comparison("Samsung")
+# plot_model_comparison("Samsung")
 # plot_single_model("Samsung", MQSSD_cost, "_write")
 # lookup_cost_by_fannout("Samsung")
+
+gen_rocksdb_csv()
+load_rocksdb_data(batch_codes=["0003"])
+# comp_cost_by_fanout("Samsung", "Level")

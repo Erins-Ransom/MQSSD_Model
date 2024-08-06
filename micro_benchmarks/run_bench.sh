@@ -61,10 +61,26 @@ make micro_bench
                     sync; echo 3 > /proc/sys/vm/drop_caches
 
                     
-                    blktrace "${DEVICE}" -D "${OUT_DIR}" -a issue -a complete &
-                    BTRACE_PID=$!
-                    ./micro_bench ${FILE} ${THREADS} ${RW_SIZE} ${FILE_SIZE} ${RW_FLAG} >> ${OUT}
-                    kill ${BTRACE_PID}
+                    if [ ${BLKTRACE} == "True" ]
+                    then
+                        blktrace "${DEVICE}" -D "${OUT_DIR}" -a issue -a complete &
+                        BTRACE_PID=$!
+                        ./micro_bench ${FILE} ${THREADS} ${RW_SIZE} ${FILE_SIZE} ${RW_FLAG} >> ${OUT}
+                        kill ${BTRACE_PID}
+
+                        cd ${OUT_DIR}
+
+                        blkparse nvme2n1 -o "${THREADS}_${RW_SIZE}_trace"
+                        # tar -czvf ${THREADS}_${RW_SIZE}_blktrace.tgz nvme2n1.blktrace.*
+                        rm nvme2n1.blktrace.*
+
+                        cd ../../../../
+                    else 
+                        ./micro_bench ${FILE} ${THREADS} ${RW_SIZE} ${FILE_SIZE} ${RW_FLAG} >> ${OUT}
+                    fi
+
+                    
+                    rm thread_* 2> /dev/null
                     
                     if [ ${RW_SIZE} -lt ${MAX_RW_SIZE} ]
                     then
@@ -73,12 +89,6 @@ make micro_bench
                         echo -ne "\n" >> ${OUT}
                         break
                     fi
-
-                    rm thread_* 2> /dev/null
-
-                    blkparse nvme2n1 -o "${OUT_DIR}/${THREADS}_${RW_SIZE}_trace"
-                    # tar -czvf blktrace.tgz nvme2n1.blktrace.*
-                    rm nvme2n1.blktrace.*
 
                     echo " [STATUS] ${OP} $(( THREADS*10 )) GiB in ${RW_SIZE} B chunks with ${THREADS} threads - DONE."
                 done

@@ -17,17 +17,18 @@
 static const std::string DB_PATH = "./db/";
 static std::string QUERY_FILE_PATH;
 
-
 int main(int argc, char** argv) {
     assert(argc == 2);
 
     QUERY_FILE_PATH = argv[1];
 
+    printf("%s\n", QUERY_FILE_PATH.c_str());
+
     rocksdb::DB* db;
     rocksdb::Options options;
     rocksdb::Status s = rocksdb::DB::OpenForReadOnly(options, DB_PATH, &db);
-    assert(!s.ok() && db);
-
+    assert(s.ok() && db);
+    
     std::ifstream queryFile;
     queryFile.open(QUERY_FILE_PATH);
 
@@ -35,12 +36,15 @@ int main(int argc, char** argv) {
     uint64_t q;
     std::string value;
     
+    uint64_t count = 0;
+
     while (queryFile >> q) {
         s = db->Get(read_options, rocksdb::Slice(uint64ToString(q)), &value);
         if (!s.ok()) {
             std::cout << s.ToString().c_str() << "\n";
             assert(false);
         }
+        count++;
     }
 
 }

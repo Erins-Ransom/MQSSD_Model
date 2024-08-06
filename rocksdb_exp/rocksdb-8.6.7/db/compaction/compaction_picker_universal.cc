@@ -425,36 +425,41 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
                          "[%s] Universal: compacting for size ratio\n",
                          cf_name_.c_str());
       } else {
-        // Size amplification and file size ratios are within configured limits.
-        // If max read amplification is exceeding configured limits, then force
-        // compaction without looking at filesize ratios and try to reduce
-        // the number of files to fewer than level0_file_num_compaction_trigger.
-        // This is guaranteed by NeedsCompaction()
-        assert(sorted_runs_.size() >=
-               static_cast<size_t>(
-                   mutable_cf_options_.level0_file_num_compaction_trigger));
-        // Get the total number of sorted runs that are not being compacted
-        int num_sr_not_compacted = 0;
-        for (size_t i = 0; i < sorted_runs_.size(); i++) {
-          if (sorted_runs_[i].being_compacted == false) {
-            num_sr_not_compacted++;
-          }
-        }
+        // mqssd
+        ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: nothing to do\n",
+                         cf_name_.c_str());
 
-        // The number of sorted runs that are not being compacted is greater
-        // than the maximum allowed number of sorted runs
-        if (num_sr_not_compacted >
-            mutable_cf_options_.level0_file_num_compaction_trigger) {
-          unsigned int num_files =
-              num_sr_not_compacted -
-              mutable_cf_options_.level0_file_num_compaction_trigger + 1;
-          if ((c = PickCompactionToReduceSortedRuns(UINT_MAX, num_files)) !=
-              nullptr) {
-            ROCKS_LOG_BUFFER(log_buffer_,
-                             "[%s] Universal: compacting for file num -- %u\n",
-                             cf_name_.c_str(), num_files);
-          }
-        }
+        // // Size amplification and file size ratios are within configured limits.
+        // // If max read amplification is exceeding configured limits, then force
+        // // compaction without looking at filesize ratios and try to reduce
+        // // the number of files to fewer than level0_file_num_compaction_trigger.
+        // // This is guaranteed by NeedsCompaction()
+        // assert(sorted_runs_.size() >=
+        //        static_cast<size_t>(
+        //            mutable_cf_options_.level0_file_num_compaction_trigger));
+        // // Get the total number of sorted runs that are not being compacted
+        // int num_sr_not_compacted = 0;
+        // for (size_t i = 0; i < sorted_runs_.size(); i++) {
+        //   if (sorted_runs_[i].being_compacted == false) {
+        //     num_sr_not_compacted++;
+        //   }
+        // }
+
+        // // The number of sorted runs that are not being compacted is greater
+        // // than the maximum allowed number of sorted runs
+        // if (num_sr_not_compacted >
+        //     mutable_cf_options_.level0_file_num_compaction_trigger) {
+        //   unsigned int num_files =
+        //       num_sr_not_compacted -
+        //       mutable_cf_options_.level0_file_num_compaction_trigger + 1;
+        //   if ((c = PickCompactionToReduceSortedRuns(UINT_MAX, num_files)) !=
+        //       nullptr) {
+        //     ROCKS_LOG_BUFFER(log_buffer_,
+        //                      "[%s] Universal: compacting for file num -- %u\n",
+        //                      cf_name_.c_str(), num_files);
+        //   }
+        // }
+        // end mqssd
       }
     }
   }

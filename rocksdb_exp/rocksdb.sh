@@ -6,15 +6,16 @@ cd "$(dirname "$0")"    # Change to directory of this script
 
 IFS=""
 
-flushthreads_arr=(1) #2 3 4)
-compthreads_arr=(1 2 4 8 16 32)
+batch_code="0003"
+
+ntrials=4
+# flushthreads_arr=(1) #2 3 4)tmux 
+compthreads_arr=(1 3 7 15 31)
 # maxsubcomp_arr=(16) #1 2 4 8)  now set to same value as compthreads
 fanout_arr=(2 4 8 16)
-nrunsuniversal_arr=(2 4 8 16)
-dynamic_level_arr=("0" "1")
-# compstyle_arr=("Level" "Universal")
-compstyle_arr=("Universal")
-filesize_arr=(32)           # in MB
+dynamic_level_arr=("1") # "0")
+compstyle_arr=("Level" "Universal")
+filesize_arr=(32 64 128)           # in MB
 
 ################################################################
 
@@ -25,8 +26,9 @@ DEV_DIR="$REPO_DIR/../dev/Samsung"
 WORKL_BIN="$REPO_DIR/../workload_gen"
 DATA_DIR="$REPO_DIR/data"
 
-nkeys=100000000
+nkeys=10000000
 nqueries=1000000
+
 
 
 # Create directories if they don't exist
@@ -35,6 +37,7 @@ mkdir -p "$RESULTS_DIR"
 experiment() {
     res="$resdir/exp.txt"
     touch "$res"
+    echo -e "Batch Code:\t\t$batch_code" >> "$res"
     echo -e "Number of Keys:\t$nkeys" >> "$res"
     echo -e "Number of Queries:\t$nqueries" >> "$res"
     echo -e "Target File Size:\t$fs MB" >> "$res"
@@ -42,7 +45,6 @@ experiment() {
     echo -e "Flush Threads:\t$ft" >> "$res"
     echo -e "Compaction Threads:\t$ct" >> "$res"
     echo -e "Fanout:\t\t$fan" >> "$res"
-    echo -e "Target Number of Runs:\t$nr" >> "$res" 
     echo -e "Dynamic Level:\t$dl" >> "$res"
     echo -e "\n" >> "$res"
 
@@ -62,7 +64,7 @@ experiment() {
     # starttime=$(expr `date +%s%N` / 1000)
     # echo -e "BLKTRACE START TIME: $starttime\n\n" >> "$res"
     # BTRACE_PID=$!
-    $EXP_BIN $DATA_DIR $nkeys $nqueries $ft $ct $fan $compstyle $dl $nr $fs >> "$res"
+    $EXP_BIN $DATA_DIR $nkeys $nqueries $ft $ct $fan $compstyle $dl $fs >> "$res"
     # kill ${BTRACE_PID}
 
     cp db/LOG "$resdir"
@@ -77,46 +79,51 @@ experiment() {
     # chown wintermute -R "$resdir"
 }
 
-for compstyle in "${compstyle_arr[@]}"; do
 
+for i in `seq $ntrials`; do 
+    ft=1
+    for compstyle in "${compstyle_arr[@]}"; do
 
-    if [[ "$compstyle" == "Level" ]]; then
+        if [[ "$compstyle" == "Level" ]]; then
 
-        for fs in "${filesize_arr[@]}"; do 
-        for ft in "${flushthreads_arr[@]}"; do
-        for ct in "${compthreads_arr[@]}"; do
-        for fan in "${fanout_arr[@]}"; do
-        for dl in "${dynamic_level_arr[@]}"; do
+            for fs in "${filesize_arr[@]}"; do 
+            for ct in "${compthreads_arr[@]}"; do
+            for fan in "${fanout_arr[@]}"; do
+            for dl in "${dynamic_level_arr[@]}"; do
 
-        nr="N/A"
-        resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
-        expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
-        experiment
+            resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
+            expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
+            experiment
 
-        done
-        done
-        done
-        done
-        done
+            done
+            done
+            done
+            done
 
-    elif [[ "$compstyle" == "Universal" ]]; then
-        
-        for fs in "${filesize_arr[@]}"; do
-        for ft in "${flushthreads_arr[@]}"; do
-        for ct in "${compthreads_arr[@]}"; do
-        for nr in "${nrunsuniversal_arr[@]}"; do
+        elif [[ "$compstyle" == "Universal" ]]; then
+            
+            for fs in "${filesize_arr[@]}"; do
+            for ct in "${compthreads_arr[@]}"; do
+            for fan in "${fanout_arr[@]}"; do
 
-        fan="N/A"
-        dl="N/A"
-        resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
-        expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
-        experiment
+            # if [ $fan == 16 ]; then 
+            #     # experiment hangs for fan == 16 and large N, not sure why
+            #     continue
+            # elif [ $fs == 32 ] && [ $ct == 1 ]; then
+            #     # already ran these experiments
+            #     continue
+            # fi
 
-        done
-        done
-        done
-        done
+            dl="N/A"
+            resdir=$(mktemp -d $RESULTS_DIR/$(date +%Y-%m-%d-%T)XXX)
+            expdir=$(mktemp -d $DEV_DIR/$(date +%Y-%m-%d-%T)XXX)
+            experiment
 
-    fi
+            done
+            done
+            done
 
+        fi
+
+    done
 done

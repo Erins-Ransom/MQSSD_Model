@@ -29,7 +29,6 @@ static size_t filesize = 32;             // in MB
 static size_t nflushthreads;
 static size_t ncompthreads;
 static size_t fanout;
-static size_t nrunsuniversal;
 static bool leveled_compaction;
 static bool dynamic_level;
 
@@ -64,8 +63,8 @@ void init(rocksdb::DB** db,
     options->use_direct_reads = true;
     options->use_direct_io_for_flush_and_compaction = true;
 
-    // Use LZ4 compression as recommended by RocksDB Wiki
-    options->compression = rocksdb::CompressionType::kLZ4Compression;
+    // Disable compression for now to minimize noise with the model (LZ4 compression is recommended by RocksDB Wiki)
+    options->compression = rocksdb::CompressionType::kNoCompression;
 
     // Keep files open by default - indexes and filters are pre-loaded if pinned when the cache is warmed
     options->max_open_files = -1;
@@ -189,7 +188,7 @@ int main(int argc, char** argv) {
 
     INIT_EXP_TIMER
 
-    assert(argc == 11);
+    assert(argc == 10);
 
     DATA_DIR = argv[1];
     nkeys = strtoull(argv[2], nullptr, 10);
@@ -199,8 +198,7 @@ int main(int argc, char** argv) {
     fanout = strtoull(argv[6], nullptr, 10);
     leveled_compaction = std::strncmp(argv[7], "Level", 5) == 0;
     dynamic_level = std::strncmp(argv[8], "1", 1) == 0;
-    nrunsuniversal = strtoull(argv[9], nullptr, 10);
-    filesize = strtoull(argv[10], nullptr, 10);
+    filesize = strtoull(argv[9], nullptr, 10);
 
 
     // std::cout << "Data Dir:\t" << DATA_DIR << std::endl;
@@ -267,28 +265,62 @@ int main(int argc, char** argv) {
         *                   compaction_options_universal.max_size_amplification_percent,    *
         *                   then perform major compaction (compact all runs to single one)  *
         *                                                                                   * 
-        *          ELSEIF:  there is an x for which sum(size(Li), i:0-(x-1)) / size(Lx) >=  *
-        *                   (100 + compaction_options_universal.size_ratio) / 100,  compact *
+        *          ELSEIF:  there is an x for which size(Lx) / sum(size(Li), i:0-(x-1)) <=  *
+        *                   (100 + compaction_options_universal.size_ratio) / 100, compact  *
         *                   runs 0-x for the largest such x                                 *
         *                                                                                   * 
-        *            ELSE:  try to schedule minor compaction without respecting ratio... ?  *
+        *            ELSE:  try to schedule minor compaction without respecting ratio...    *
+        *                   it is unclear when this succeeds?                               *
         *                                                                                   * 
         *            ALSO:  compaction_options_universal.min_merge_width &                  *
         *                   compaction_options_universal.max_merge_width determine min and  *
         *                   max number of input runs for compaction respectively            *
         *                                                                                   *
         *            NOTE:  The settings below should theoretically get behavior similar to *
-        *                   standard tiering where fannout == nrunsuniversal.               *
+        *                   standard tiering                                                *
+        *                                                                                   *
+        *         EXAMPLE:  settings from below, file size = 1, fanout = 4                  *
+        *                                                                                   *
+        *                   1 (flush)                                                       *
+        *                   1 1 (flush)                                                     *
+        *                   1 1 1 (flush)                                                   *
+        *                   1 1 1 1 (flush, file trigger)                                   *
+        *                   4 (major compaction)                                            *
+        *                   1 4 (flush)                                                     *
+        *                   1 1 4 (flush)                                                   *
+        *                   1 1 1 4 (flush, file trigger, but no valid candidates)          *
+        *                   1 1 1 1 4 (flush)                                               *
+        *                   4 4 (minor compaction)                                          *
+        *                   1 4 4 (flush)                                                   *
+        *                   1 1 4 4 (flush, file trigger, but no valid candidates)          *
+        *                   1 1 1 4 4 (flush)                                               *
+        *                   1 1 1 1 4 4 (flush)                                             *
+        *                   4 4 4 (minor compaction)                                        *
+        *                   1 4 4 4 (flush, file trigger, but no valid candidates)          *
+        *                   1 1 4 4 4 (flush)                                               *
+        *                   1 1 1 4 4 4 (flush)                                             *
+        *                   1 1 1 1 4 4 4 (flush)                                           *
+        *                   4 4 4 4 (minor compaction)                                      *
+        *                   16 (major compaction)                                           *
+        *                   1 16 (flush)                                                    *
+        *                   1 1 16 (flush)                                                  *
+        *                   1 1 1 16 (flush, file trigger, but no valid candidates)         *
+        *                   1 1 1 1 16 (flush)                                              *
+        *                   4 16 (minor compaction)                                         *
+        *                   etc.                                                            *
+        *                                                                                   *
         *************************************************************************************/
 
-        options.num_levels = nrunsuniversal * 5;                                        // each run is stored as a "level" except those in L0
+
+        options.num_levels = fanout * 5;                                                // each run is stored as a "level" except those in L0
         options.compaction_style = rocksdb::kCompactionStyleUniversal;                  // Universal ~= Tiered
         options.periodic_compaction_seconds = 0;                                        // 0: disabled, default: 30 days
-        options.level0_file_num_compaction_trigger = nrunsuniversal;         
-        options.compaction_options_universal.max_size_amplification_percent = 100 * (nrunsuniversal - 1);      // default: 200
+        options.level0_file_num_compaction_trigger = fanout;         
+        options.compaction_options_universal.max_size_amplification_percent =           // default: 200
+                100 * ((fanout - 1) + fanout / (fanout - 1));                           // full tree as percent of largest run 
         options.compaction_options_universal.size_ratio = 1;                            // default: 1
-        options.compaction_options_universal.min_merge_width = nrunsuniversal;          // default: 2
-        options.compaction_options_universal.max_merge_width = nrunsuniversal;          // default: UINT_MAX
+        options.compaction_options_universal.min_merge_width = fanout;                  // default: 2
+        options.compaction_options_universal.max_merge_width = fanout;                  // default: UINT_MAX
         
     }
 
@@ -309,7 +341,7 @@ int main(int argc, char** argv) {
 
 
     // only do read workload for one thread count
-    if (nflushthreads == 16)
+    if (ncompthreads == 1)
     {
         START_EXP_TIMER
         warmCache(db);
