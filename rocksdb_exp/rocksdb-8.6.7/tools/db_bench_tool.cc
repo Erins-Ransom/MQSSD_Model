@@ -3566,7 +3566,12 @@ class Benchmark {
       } else if (name == "compact1") {
         CompactLevel(1);
       } else if (name == "waitforcompaction") {
+        auto* clock = FLAGS_env->GetSystemClock().get();
+        auto start = clock->NowMicros();
         WaitForCompaction();
+        auto finish = clock->NowMicros();
+        double elapsed = (finish - start) * 1e-6;
+        fprintf(stdout, "waitforcompaction: %.6f \n", elapsed);
       } else if (name == "flush") {
         Flush();
       } else if (name == "crc32c") {
