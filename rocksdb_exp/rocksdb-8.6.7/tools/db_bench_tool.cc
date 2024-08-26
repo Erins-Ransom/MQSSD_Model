@@ -3571,7 +3571,7 @@ class Benchmark {
         WaitForCompaction();
         auto finish = clock->NowMicros();
         double elapsed = (finish - start) * 1e-6;
-        fprintf(stdout, "waitforcompaction: %.6f \n", elapsed);
+        fprintf(stdout, "waitforcompaction: %.6f seconds\n", elapsed);
       } else if (name == "flush") {
         Flush();
       } else if (name == "crc32c") {
